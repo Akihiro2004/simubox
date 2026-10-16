@@ -1,0 +1,30 @@
+rules_version = '2';
+
+// Each student can only read and write their own saved experiments.
+// Everything else is closed. (The server's Admin SDK bypasses these rules,
+// but SimuBox only uses it to verify sign-in tokens.)
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/experiments/{expId} {
+      function isOwner() {
+        return request.auth != null && request.auth.uid == uid;
+      }
+      function validExperiment() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['id', 'title', 'world', 'updatedAt', 'updatedAtMs', 'scene', 'messages', 'plan', 'version'])
+          && d.id == expId
+          && d.title is string && d.title.size() > 0 && d.title.size() <= 80
+          && d.world in ['bedroom', 'court', 'lab', 'park', 'stage']
+          && d.updatedAtMs is int
+          && d.version == 1
+          && d.messages is list && d.messages.size() <= 40
+          && d.scene is map;
+      }
+      allow read, delete: if isOwner();
+      allow create, update: if isOwner() && validExperiment();
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

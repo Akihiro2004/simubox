@@ -1,36 +1,93 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SimuBox
 
-## Getting Started
+**Ask anything. Watch it come to life.**
 
-First, run the development server:
+SimuBox is a chat box that answers in 3D. A student (primary to high school) types a science question, and Gemini directs a short lesson inside a small isometric diorama: it picks a world, sets up a real experiment, spawns objects and characters, and Simu the robot explains what is happening. The student can then orbit the camera, drag and throw objects, change sliders, and ask follow-ups without the scene resetting.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+Built for the [AI Builder Cup 2026](https://aibuildercup.com/) on Google Cloud.
+
+## What actually works
+
+| Feature | How it works | Status |
+| --- | --- | --- |
+| Gravity and forces (bedroom) | Rapier rigid-body physics; gravity presets from zero to Jupiter; impulses; drag to pick up and throw; per-object mass and bounciness | Working |
+| Projectile motion (court) | Exact analytic equations (no drag, launch height supported); km/h, m/s, mph; sliders relaunch instantly without AI | Working, 120+ numeric tests |
+| Molecules and atoms (lab) | Curated geometry for H₂O, CO₂, CH₄, NH₃, O₂, N₂, H₂, HCl from NIST data; lone pairs; measured bond-angle arcs; Bohr-model atoms H to Ca (labelled simplified) | Working |
+| Other topics | Gemini builds a labelled illustration from catalog objects, shapes, arrows and characters, and marks it "Illustration", never "simulation" | Needs a Gemini key to try |
+| Gemini director | Structured JSON plan validated by Zod; bad commands dropped individually; one repair round; numbers only via engine placeholders like `{{range}}` | Code complete; live calls need a key |
+| Guardrails | Deterministic pre-filter for clearly unsafe prompts; Gemini classifies `too_advanced`, `off_topic`, `unsafe`, `needs_clarification`; prompt-injection-resistant system prompt | Working (pre-filter tested) |
+| Teaching | Characters with speech bubbles, narrator captions, prediction questions, read-aloud (browser voice), English and Bahasa Indonesia | Working |
+| Rooms you can walk around | Four walls; the walls facing the camera lower into a baseboard as you orbit | Working |
+| Accounts and saving | Google sign-in with Firebase Auth; experiments in Firestore with owner-only rules; guests save to the browser | Code complete; needs a Firebase project |
+| Lesson upload | PDF or text read by Gemini in memory (never stored), turned into suggested questions | Needs a Gemini key |
+| Offline demos | When no AI is configured, the three core prompts play pre-written lessons clearly badged "Offline demo" | Working |
+
+## Architecture
+
+```
+Browser (Next.js client)                          Cloud Run (Next.js server)
+┌──────────────────────────────────────┐         ┌───────────────────────────────┐
+│ Composer ──ask()────────────────────────────▶ │ /api/ai/plan                    │
+│   scene snapshot + recent turns      │         │  rate limit, verify Firebase   │
+│                                      │         │  token, guard pre-filter       │
+│                                      │         │  Gemini (structured JSON)      │
+│ SimuPlayer ◀──── validated ScenePlan ──────── │  Zod validation + repair        │
+│  runs commands in order, cancellable │         └───────────────────────────────┘
+│  ├─ SimuWorld (R3F scene, cutaway)   │
+│  ├─ SimuEngine (Rapier, projectile,  │         Firebase Auth + Firestore
+│  │   chemistry: all numbers)         │◀──────▶ users/{uid}/experiments/{id}
+│  └─ Teaching UI (bubbles, TTS, cards)│
+└──────────────────────────────────────┘
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- `src/lib/ssp/` — the SimuBox Scene Protocol: Zod schemas for ~30 commands and the plan, plus the validator.
+- `src/lib/ai/` — system prompt, capability registry and matcher, guardrails, Gemini director, offline demo plans.
+- `src/lib/engine/` — projectile maths and curated chemistry data (pure, unit-tested).
+- `src/lib/player.ts` — executes plans against the scene; fills `{{placeholders}}` from engine results.
+- `src/components/world/` — the 3D worlds, objects, characters and labels.
+- `src/components/ui/` — composer, Simu's answer card, controls rail, menu and settings.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The model never writes code or coordinates for science. It picks from a catalog, and the deterministic engines supply geometry and numbers.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Run locally
 
-## Learn More
+Requires Node 22.
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm install
+cp .env.example .env.local   # add GEMINI_API_KEY to use live Gemini
+npm run dev
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Without `GEMINI_API_KEY` the app still runs: the three core questions play offline demos, badged as such.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Tests
 
-## Deploy on Vercel
+```bash
+npm test             # unit tests: physics, chemistry, protocol, guardrails, cutaway
+npm run test:e2e     # Playwright against the production build (run `npm run build` first)
+npm run lint
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Deploy to Google Cloud Run
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Cloud Build builds the Dockerfile remotely, so Docker isn't needed locally. Gemini runs through Vertex AI using the service's own identity, so no API key is stored.
+
+```powershell
+./scripts/deploy.ps1 -Project YOUR_PROJECT_ID -Region asia-southeast1
+```
+
+The script enables the needed APIs, creates a least-privilege runtime service account (`roles/aiplatform.user` only), and deploys with scale-to-zero and at most 3 instances to cap spending. Add `-FirebaseApiKey`, `-FirebaseAuthDomain` and `-FirebaseAppId` to turn on sign-in.
+
+### Firebase (optional, for accounts)
+
+1. Add Firebase to the Google Cloud project, create a web app, and enable Google sign-in under Authentication.
+2. Add your Cloud Run domain under Authentication → Settings → Authorized domains.
+3. Deploy the security rules: `firebase deploy --only firestore:rules --project YOUR_PROJECT_ID`.
+
+## Limits and honesty notes
+
+- Physics uses small air drag as a stand-in for air resistance; projectiles assume no air drag at all. Assumptions are shown in each lesson.
+- Atom models are the simplified Bohr picture and are labelled that way.
+- Rate limiting is in memory per Cloud Run instance. That's fine for a demo; a shared store would be needed at scale.
+- All 3D models are original, built from primitives in code (see [ASSET_CREDITS.md](ASSET_CREDITS.md)).
