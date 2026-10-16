@@ -108,3 +108,9 @@ export function markFresh(id: string) {
 export function takeFresh(id: string): boolean {
   return fresh.delete(id);
 }
+
+/**
+ * The camera rig registers here so lesson code can ask whether points are
+ * clearly on screen (outside the cards and composer). Null until mounted.
+ */
+export const view: { inView: ((points: Vec3[]) => boolean) | null } = { inView: null };

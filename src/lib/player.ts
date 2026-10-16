@@ -4,9 +4,9 @@
 // command at a time. A new plan (or reset) aborts the running one at once.
 
 import { Euler, Quaternion } from "three";
-import { ASSETS, LIMITS, WORLDS, type Vec3 } from "./world/catalog";
+import { ASSETS, GUIDE_ID, LIMITS, WORLDS, type Vec3 } from "./world/catalog";
 import { assetObject, type SceneObject } from "./world/scene";
-import { allSettled, emit, getBody, liveBodies, livePosition, markFresh, waitFor } from "./world/runtime";
+import { allSettled, emit, getBody, liveBodies, livePosition, markFresh, view, waitFor } from "./world/runtime";
 import { fmt, toMetersPerSecond } from "./engine/projectile";
 import { fillPlaceholders } from "./ssp/validate";
 import { MODULE_FIELDS, type Command, type ScenePlan, type Step } from "./ssp/schema";
@@ -61,6 +61,7 @@ export async function runPlan(plan: ScenePlan, source: Explanation["source"], op
   cancelPlayback();
   const ctl = new AbortController();
   controller = ctl;
+  subject = null;
   const s = st();
   s.set({
     prePlanScene: opts.replay ? s.prePlanScene : pickScene(s),
@@ -226,8 +227,77 @@ function defaultMoleculeSpot(): Vec3 {
   return [[0, -1.9, 1.9][taken % 3], y, 0];
 }
 
+// ---------- keeping the subject and the speaker on screen ----------
+
+/** What the lesson is currently about: an object/character id or a spot. */
+let subject: string | Vec3 | null = null;
+
+/** The thing a command acts on, if it acts on one specific thing. */
+function subjectOf(c: Command): string | Vec3 | null {
+  switch (c.op) {
+    case "spawn_asset":
+    case "spawn_primitive":
+    case "spawn_shape":
+    case "morph_shape":
+    case "move_object":
+    case "build_molecule":
+    case "build_atom":
+      return c.id;
+    case "highlight_object":
+      return c.on ? c.id : null;
+    case "apply_impulse":
+    case "apply_force":
+    case "set_velocity":
+      return c.id === "all" ? null : c.id;
+    case "show_annotation":
+      return c.target ?? (c.position as Vec3 | undefined) ?? null;
+    case "show_vector":
+      return c.target ?? (c.origin as Vec3 | undefined) ?? null;
+    case "focus_camera":
+      return c.target ?? (c.position as Vec3 | undefined) ?? null;
+    default:
+      return null;
+  }
+}
+
+/** Points that must be visible for a thing: its box corners, roughly. */
+function pointsOf(what: string | Vec3): Vec3[] {
+  const s = st();
+  if (typeof what !== "string") return [what];
+  const o = s.objects[what];
+  const ch = s.characters[what];
+  const at = livePosition(what) ?? o?.position ?? ch?.position;
+  if (!at) return [];
+  let r = 0.4;
+  if (ch) return [at, [at[0], at[1] + 2.4, at[2]]]; // feet to the top of the speech bubble
+  if (o?.type === "shape" || o?.type === "primitive") r = Math.max(...o.size) / 2;
+  else if (o?.type === "asset") r = (Math.max(...ASSETS[o.asset].size) * o.scale) / 2;
+  else if (o?.type === "molecule" || o?.type === "atom") r = 0.9;
+  return [
+    [at[0] - r, at[1] - r, at[2]],
+    [at[0] + r, at[1] + r, at[2]],
+    [at[0], at[1], at[2] - r],
+    [at[0], at[1], at[2] + r],
+  ];
+}
+
+/**
+ * Students with the sound off read the guide's bubble, so the speaker and
+ * what the lesson is about must both be on screen. Moves the camera only
+ * when one of them isn't. Returns true if it moved.
+ */
+export function keepInView(speakerId: string | null, extra: (string | Vec3)[] = [], radius?: number): boolean {
+  const points = [...(speakerId ? pointsOf(speakerId) : []), ...(subject ? pointsOf(subject) : []), ...extra.flatMap(pointsOf)];
+  if (!points.length || !view.inView || view.inView(points)) return false;
+  st().focus({ points, radius });
+  return true;
+}
+
 export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = "en"): Promise<void> {
   const s = st();
+  const about = subjectOf(c);
+  if (about) subject = about;
+  if (c.op === "load_world") subject = null;
   switch (c.op) {
     case "load_world":
       s.loadWorld(c.world);
@@ -664,7 +734,10 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       return;
     case "focus_camera": {
       const target = c.target ? (livePosition(c.target) ?? s.objects[c.target]?.position ?? s.characters[c.target]?.position) : (c.position as Vec3 | undefined);
-      s.focus({ target: target ?? WORLDS[s.world].camera.target, zoom: c.zoom ?? "medium" });
+      // Frame the target together with the guide, so the bubble stays readable.
+      const guide = s.characters[GUIDE_ID] && target && s.camera.preset !== "periodic_table" ? pointsOf(GUIDE_ID) : [];
+      if (guide.length && target) s.focus({ points: [...guide, ...pointsOf(c.target ?? target)], radius: { close: 1.2, medium: 2.2, wide: 4.5 }[c.zoom ?? "medium"] });
+      else s.focus({ target: target ?? WORLDS[s.world].camera.target, zoom: c.zoom ?? "medium" });
       await sleep(500, signal);
       return;
     }
@@ -695,6 +768,8 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       const speaker = c.speaker === "narrator" ? null : s.characters[c.speaker];
       const key = ++speechKey;
       s.set({ speech: { key, speaker: c.speaker, text, emotion: c.emotion } });
+      // The bubble is the only way a muted student hears this line.
+      if (speaker && s.camera.preset !== "periodic_table") keepInView(speaker.id);
       if (speaker) s.patchCharacter(speaker.id, { animation: "talk", animNonce: speaker.animNonce + 1 });
       useSim.getState().addMessage("assistant", speaker ? `${speaker.name}: ${text}` : text, true);
 

@@ -3,7 +3,8 @@
 import { CameraControls, CameraControlsImpl } from "@react-three/drei";
 import { useEffect, useRef } from "react";
 import { useThree } from "@react-three/fiber";
-import { Box3, Vector3 } from "three";
+import { Box3, MathUtils, PerspectiveCamera, Sphere, Vector3 } from "three";
+import { view } from "@/lib/world/runtime";
 import { useSim } from "@/lib/store";
 import { WORLDS } from "@/lib/world/catalog";
 import { periodicTableCamera } from "@/lib/periodic-table";
@@ -13,11 +14,27 @@ export const controlsRef: { current: CameraControlsImpl | null } = { current: nu
 
 const ZOOM = { close: 4.5, medium: 9, wide: 18 } as const;
 
+/**
+ * Screen area not covered by UI, in normalized device coordinates: the
+ * answer card sits on the left, the composer at the bottom, controls right.
+ */
+const SAFE = { left: -0.45, right: 0.62, bottom: -0.6, top: 0.8 };
+const ndc = new Vector3();
+
+/** Camera distance that fits a sphere of radius r inside the safe area. */
+export function fitDistance(r: number, fovDeg: number, aspect: number): number {
+  const half = MathUtils.degToRad(fovDeg / 2);
+  const v = Math.atan(Math.tan(half) * ((SAFE.top - SAFE.bottom) / 2));
+  const h = Math.atan(Math.tan(half) * aspect * ((SAFE.right - SAFE.left) / 2));
+  return r / Math.sin(Math.min(v, h));
+}
+
 export function CameraRig({ animate }: { animate: boolean }) {
   const ref = useRef<CameraControlsImpl>(null);
   const cam = useSim((s) => s.camera);
   const world = useSim((s) => s.world);
   const size = useThree((s) => s.size);
+  const camera = useThree((s) => s.camera);
 
   useEffect(() => {
     controlsRef.current = ref.current;
@@ -25,6 +42,20 @@ export function CameraRig({ animate }: { animate: boolean }) {
       controlsRef.current = null;
     };
   }, []);
+
+  // Lets lessons check that the subject and the speaking guide are visible.
+  useEffect(() => {
+    view.inView = (points) => {
+      camera.updateMatrixWorld();
+      return points.every((p) => {
+        ndc.set(...p).project(camera);
+        return ndc.z < 1 && ndc.x > SAFE.left && ndc.x < SAFE.right && ndc.y > SAFE.bottom && ndc.y < SAFE.top;
+      });
+    };
+    return () => {
+      view.inView = null;
+    };
+  }, [camera]);
 
   // Keep the orbit target inside the world so the view can't get lost.
   useEffect(() => {
@@ -44,6 +75,17 @@ export function CameraRig({ animate }: { animate: boolean }) {
     if (cam.preset === "periodic_table" && world === "lab") {
       const { position: p, target: t } = periodicTableCamera(size.width / Math.max(1, size.height));
       void c.setLookAt(...p, ...t, smooth);
+      return;
+    }
+    if (cam.points?.length) {
+      // Fit every point, keeping the current viewing angle.
+      const sphere = new Sphere().setFromPoints(cam.points.map((q) => new Vector3(...q)));
+      const r = Math.max(cam.radius ?? 1.5, sphere.radius + 0.6);
+      const fov = camera instanceof PerspectiveCamera ? camera.fov : 32;
+      const dist = fitDistance(r, fov, size.width / Math.max(1, size.height));
+      const dir = p.sub(t).normalize();
+      const pos = sphere.center.clone().addScaledVector(dir, dist);
+      void c.setLookAt(pos.x, Math.max(pos.y, sphere.center.y + 1), pos.z, sphere.center.x, sphere.center.y, sphere.center.z, smooth);
       return;
     }
     if (cam.target) {

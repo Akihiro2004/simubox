@@ -91,6 +91,10 @@ export interface CameraRequest {
   /** Explicit camera distance (overrides zoom), e.g. to frame a trajectory. */
   distance?: number;
   preset?: "iso" | "top" | "front" | "side" | "home" | "periodic_table";
+  /** Fit all of these on screen (the subject and the speaking guide), keeping the viewing angle. */
+  points?: Vec3[];
+  /** Smallest framed radius (m) for points framing. */
+  radius?: number;
 }
 
 export interface Settings {
