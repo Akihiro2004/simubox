@@ -2,13 +2,14 @@
 
 import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { BallCollider, ConvexHullCollider, CuboidCollider, RigidBody } from "@react-three/rapier";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MathUtils, type Group } from "three";
 import { useShallow } from "zustand/react/shallow";
 import { useSim } from "@/lib/store";
 import { ASSETS, WORLDS, type Vec3 } from "@/lib/world/catalog";
 import { fishPose, isFish } from "@/lib/world/nature";
-import { bodies, liveBodies, livePosition, nodes } from "@/lib/world/runtime";
+import { bodies, liveBodies, livePosition, nodes, takeFresh } from "@/lib/world/runtime";
+import { Appear } from "./appear";
 import type { SceneObject } from "@/lib/world/scene";
 import { AssetModel, PrimitiveModel, rampHull } from "./assets";
 import { AtomModel, MoleculeModel } from "./chem";
@@ -74,6 +75,8 @@ function PhysObject({ o }: { o: SceneObject }) {
   const swimPhase = useMemo(() => Array.from(o.id).reduce((n, c) => n + c.charCodeAt(0), 0) * .37, [o.id]);
   const animate = useMotion();
   const rot = useMemo(() => o.rotation.map((d) => d * DEG) as Vec3, [o.rotation]);
+  // Lesson spawns grow in; world furniture and remounts just appear.
+  const [pop] = useState(() => takeFresh(o.id) && animate);
 
   useEffect(() => {
     if (group.current) nodes.set(o.id, group.current);
@@ -110,7 +113,9 @@ function PhysObject({ o }: { o: SceneObject }) {
   if (!o.visible) return null;
   const model = (
     <group scale={o.scale} onPointerDown={select} onPointerOver={(e) => onOver(e, o.physics === "dynamic")} onPointerOut={onOut}>
-      <Model o={o} animate={animate} />
+      <Appear on={pop}>
+        <Model o={o} animate={animate} />
+      </Appear>
     </group>
   );
 

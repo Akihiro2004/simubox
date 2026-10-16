@@ -1,9 +1,10 @@
-# Deploys SimuBox to Cloud Run from source: Cloud Build builds the Dockerfile
+﻿# Deploys SimuBox to Cloud Run from source: Cloud Build builds the Dockerfile
 # remotely (local Docker is optional, for testing: see README).
 # Gemini auth, pick one:
 #   default      Vertex AI with the service's own identity (no key stored)
 #   -UseApiKey   your AI Studio key (GEMINI_API_KEY from the environment or
 #                .env.local), stored in Secret Manager, never in the image
+# DEEPSEEK_API_KEY (environment or .env.local), if set, is stored the same way.
 #
 # Usage:  ./scripts/deploy.ps1 -Project my-project [-Region asia-southeast1] [-UseApiKey]
 #         [-FirebaseApiKey ... -FirebaseAuthDomain ... -FirebaseAppId ... -FirebaseProjectId ...]
@@ -32,24 +33,41 @@ if (-not $existing) {
 }
 gcloud projects add-iam-policy-binding $Project --member "serviceAccount:$sa" --role "roles/aiplatform.user" --condition=None | Out-Null
 
-$secretArgs = @()
-if ($UseApiKey) {
-  $key = $env:GEMINI_API_KEY
-  if (-not $key -and (Test-Path .env.local)) {
-    $line = Select-String -Path .env.local -Pattern '^GEMINI_API_KEY=(.+)$' | Select-Object -First 1
-    if ($line) { $key = $line.Matches[0].Groups[1].Value.Trim() }
+# Reads a key from the environment or .env.local.
+function Get-Key([string]$Name) {
+  $v = [Environment]::GetEnvironmentVariable($Name)
+  if (-not $v -and (Test-Path .env.local)) {
+    $line = Select-String -Path .env.local -Pattern "^$Name=(.+)$" | Select-Object -First 1
+    if ($line) { $v = $line.Matches[0].Groups[1].Value.Trim() }
   }
+  return $v
+}
+
+# Stores a key in Secret Manager (piped in, so it never appears on a command line).
+function Set-Secret([string]$Secret, [string]$Value) {
+  $exists = gcloud secrets list --filter="name:$Secret" --format="value(name)"
+  if (-not $exists) { gcloud secrets create $Secret --replication-policy automatic | Out-Null }
+  $Value | gcloud secrets versions add $Secret --data-file=- | Out-Null
+  gcloud secrets add-iam-policy-binding $Secret --member "serviceAccount:$sa" --role "roles/secretmanager.secretAccessor" | Out-Null
+}
+
+$secrets = @()
+if ($UseApiKey) {
+  $key = Get-Key "GEMINI_API_KEY"
   if (-not $key) { throw "Set GEMINI_API_KEY (or put it in .env.local) to use -UseApiKey." }
-  $exists = gcloud secrets list --filter="name:gemini-api-key" --format="value(name)"
-  if (-not $exists) { gcloud secrets create gemini-api-key --replication-policy automatic | Out-Null }
-  # Pipe the key in so it never appears on a command line or in history.
-  $key | gcloud secrets versions add gemini-api-key --data-file=- | Out-Null
-  gcloud secrets add-iam-policy-binding gemini-api-key --member "serviceAccount:$sa" --role "roles/secretmanager.secretAccessor" | Out-Null
+  Set-Secret "gemini-api-key" $key
   $envVars = "GEMINI_MODEL=$Model"
-  $secretArgs = @("--set-secrets", "GEMINI_API_KEY=gemini-api-key:latest")
+  $secrets += "GEMINI_API_KEY=gemini-api-key:latest"
 } else {
   $envVars = "GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=$Project,GOOGLE_CLOUD_LOCATION=global,GEMINI_MODEL=$Model"
 }
+# Optional: DeepSeek for quick scene edits and repairs (see .env.example).
+$deepseek = Get-Key "DEEPSEEK_API_KEY"
+if ($deepseek) {
+  Set-Secret "deepseek-api-key" $deepseek
+  $secrets += "DEEPSEEK_API_KEY=deepseek-api-key:latest"
+}
+$secretArgs = if ($secrets.Count) { @("--set-secrets", ($secrets -join ",")) } else { @() }
 if ($FirebaseApiKey) {
   $fbProject = if ($FirebaseProjectId) { $FirebaseProjectId } else { $Project }
   $envVars += ",FIREBASE_API_KEY=$FirebaseApiKey,FIREBASE_AUTH_DOMAIN=$FirebaseAuthDomain,FIREBASE_PROJECT_ID=$fbProject,FIREBASE_APP_ID=$FirebaseAppId"

@@ -182,6 +182,8 @@ export function tableSelection(state: PeriodicTableState): Set<number> {
 
 /** Board faces +x on the lab's left wall. Keep its camera inside the room. */
 export function periodicTableCamera(aspect: number) {
-  const distance = 4.8 * Math.max(1, 1.65 / Math.max(.25, aspect));
-  return { target: [-3.92, 2.2, .2] as [number, number, number], position: [-3.92 + distance, 2.2 + distance * .16, .2] as [number, number, number] };
+  const distance = 5.3 * Math.max(1, 1.65 / Math.max(.25, aspect));
+  // On wide screens, leave the right side for the lab's controls card.
+  const z = aspect >= 1.25 ? -.3 : .2;
+  return { target: [-3.92, 2.2, z] as [number, number, number], position: [-3.92 + distance, 2.2, z] as [number, number, number] };
 }

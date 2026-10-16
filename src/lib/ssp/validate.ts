@@ -93,8 +93,8 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
         continue;
       }
       if (!(name in ARG_PLACEHOLDERS)) return `unknown placeholder {{${name}:${arg}}}`;
-      if (["volume", "surface_area", "float_fraction", "density"].includes(name) && !objects.has(arg)) return `unknown object in {{${name}:${arg}}}`;
-      if (["period", "planet_gravity", "distance_au", "radius_km"].includes(name) && !(PLANET_IDS as readonly string[]).includes(arg)) return `unknown planet in {{${name}:${arg}}}`;
+      if (["volume", "surface_area", "float_fraction", "density", "mass"].includes(name) && !objects.has(arg)) return `unknown object in {{${name}:${arg}}}`;
+      if (["period", "planet_gravity", "distance_au", "radius_km", "sunlight", "sunlight_change"].includes(name) && !(PLANET_IDS as readonly string[]).includes(arg)) return `unknown planet in {{${name}:${arg}}}`;
       if (name === "distance_km") {
         const ends = arg.split("~");
         if (ends.length !== 2 || !ends.every(placeOrMark)) return `unknown places in {{${name}:${arg}}}`;
@@ -204,9 +204,12 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
           break;
         }
         case "show_annotation":
-        case "show_vector":
+        case "show_vector": {
           if (c.target && !objects.has(c.target) && !characters.has(c.target)) return drop(`unknown target "${c.target}"`);
+          const err = placeholderError(c.op === "show_annotation" ? c.text : (c.label ?? ""));
+          if (err) return drop(err);
           break;
+        }
         case "focus_camera":
           if (c.target && !objects.has(c.target) && !characters.has(c.target)) return drop(`unknown target "${c.target}"`);
           break;

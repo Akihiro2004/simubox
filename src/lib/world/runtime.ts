@@ -98,3 +98,13 @@ export function allSettled(): boolean {
   }
   return true;
 }
+
+/** Ids a lesson just spawned; their models grow in once on first mount. */
+const fresh = new Set<string>();
+export function markFresh(id: string) {
+  fresh.add(id);
+}
+/** True once per freshly spawned id (later remounts don't replay the grow-in). */
+export function takeFresh(id: string): boolean {
+  return fresh.delete(id);
+}

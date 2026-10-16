@@ -35,6 +35,7 @@ const SIDES: Record<Side, { pos: [number, number]; rotY: number; normal: [number
 };
 
 function Wall({ side, color, animate, children }: { side: Side; color: string; animate: boolean; children?: React.ReactNode }) {
+  const readingTable = useSim((s) => s.world === "lab" && s.camera.preset === "periodic_table");
   const scaler = useRef<Group>(null);
   const decor = useRef<Group>(null);
   const hidden = useRef(false);
@@ -42,7 +43,7 @@ function Wall({ side, color, animate, children }: { side: Side; color: string; a
   useFrame(({ camera }, dt) => {
     const g = scaler.current;
     if (!g) return;
-    hidden.current = wallBlocksView(f.normal, camera.position.x, camera.position.z, hidden.current);
+    hidden.current = side === "-x" && readingTable ? false : wallBlocksView(f.normal, camera.position.x, camera.position.z, hidden.current);
     const target = hidden.current ? STUB : 1;
     g.scale.y = animate ? MathUtils.damp(g.scale.y, target, 9, dt) : target;
     // Windows and posters vanish before they get squashed.

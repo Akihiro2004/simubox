@@ -39,7 +39,14 @@ export async function POST(req: Request) {
     const stream = new ReadableStream({
       async start(controller) {
         const send = (o: unknown) => controller.enqueue(enc.encode(`${JSON.stringify(o)}\n`));
-        const result = await direct(parsed.data, (e: DirectorEvent) => send(e));
+        const result = await direct(
+          parsed.data,
+          (e: DirectorEvent) => {
+            if (!req.signal.aborted) send(e);
+          },
+          req.signal,
+        );
+        if (req.signal.aborted) return;
         logResult(uid, result);
         send(result.ok ? { type: "result", plan: result.plan, issues: result.issues, model: result.model } : { type: "error", error: result.error, code: result.code, status: result.status });
         controller.close();
@@ -48,7 +55,7 @@ export async function POST(req: Request) {
     return new Response(stream, { headers: { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store", "x-accel-buffering": "no" } });
   }
 
-  const result = await direct(parsed.data);
+  const result = await direct(parsed.data, undefined, req.signal);
   logResult(uid, result);
   if (!result.ok) return Response.json({ error: result.error, code: result.code }, { status: result.status });
   return Response.json({ plan: result.plan, issues: result.issues, model: result.model });

@@ -16,6 +16,7 @@ import { CELL_KINDS, CELL_PARTS, ORGANELLES } from "@/lib/engine/biology";
 import { MATERIALS, SUBSTANCES, SUBSTANCE_IDS, phaseAt, type MaterialId, type SubstanceId } from "@/lib/engine/physics2";
 import { objectName } from "@/lib/world/scene";
 import { getBody, livePosition, liveSpeed } from "@/lib/world/runtime";
+import { EMPTY_TABLE, PERIODIC_ELEMENTS } from "@/lib/periodic-table";
 
 // ---------- small building blocks ----------
 
@@ -157,7 +158,6 @@ function ChemControls() {
   return (
     <>
       <button className="btn btn-soft mt-2 w-full" onClick={() => execNow({ op: "show_periodic_table" })}>Read periodic table</button>
-      <button className="btn btn-soft mt-1 w-full" onClick={() => execNow({ op: "show_periodic_table", elements: [], groups: [], periods: [], marks: [], caption: "", focus: false })}>Clear table markings</button>
       <Caption>Molecules</Caption>
       <Seg label="Molecules" value={current?.type === "molecule" ? current.molecule : null} options={MOLECULE_IDS.map((m) => [m, MOLECULES[m].formula] as const)} onChange={(m) => show({ kind: "molecule", id: m })} cols={4} />
       <Caption>Atoms, simplified model</Caption>
@@ -372,15 +372,38 @@ const TEMP_RANGE: Record<SubstanceId, [number, number]> = { water: [-40, 140], i
 
 function LabControls() {
   const { particles, cell } = useSim(useShallow((s) => ({ particles: s.modules.particles, cell: s.modules.cell })));
-  const active = particles ? "matter" : cell ? "cell" : "chem";
+  const readingTable = useSim((s) => s.camera.preset === "periodic_table");
+  const table = useSim((s) => s.modules.periodicTable) ?? EMPTY_TABLE;
+  const element = table.elements.length === 1 ? PERIODIC_ELEMENTS[table.elements[0] - 1] : null;
+  const active = readingTable ? "table" : particles ? "matter" : cell ? "cell" : "chem";
   const pick = (k: typeof active) => {
+    if (k === "table") { execNow({ op: "show_periodic_table" }); return; }
+    if (readingTable) useSim.getState().focus({ preset: "home" });
     if (k === "chem") patchModules({ particles: null, cell: null });
     else if (k === "matter") execNow({ op: "show_particles", substance: "water", temperatureC: 20 });
     else execNow({ op: "show_cell", kind: "animal" });
   };
   return (
     <>
-      <Seg label="Explore" value={active} options={[["chem", "Molecules"], ["matter", "Matter"], ["cell", "Cells"]] as const} onChange={pick} />
+      <Seg label="Explore" value={active} options={[["chem", "Molecules"], ["table", "Table"], ["matter", "Matter"], ["cell", "Cells"]] as const} onChange={pick} />
+      {readingTable && <>
+        <Caption>118 elements</Caption>
+        <select aria-label="Find an element" className="mt-1 w-full rounded-xl bg-white/80 px-3 py-2.5 text-sm" value={table.elements.length === 1 ? table.elements[0] : ""} onChange={(e) => {
+          if (!e.target.value) return;
+          const el = PERIODIC_ELEMENTS[Number(e.target.value) - 1];
+          execNow({ op: "show_periodic_table", elements: [el.number], groups: [], periods: [], caption: `${el.number} · ${el.name} (${el.symbol}) · Period ${el.period}${el.group ? ` · Group ${el.group}` : ""}`, focus: false });
+        }}>
+          <option value="">Find an element…</option>
+          {PERIODIC_ELEMENTS.map((e) => <option key={e.number} value={e.number}>{e.number} · {e.symbol} · {e.name}</option>)}
+        </select>
+        {element && <div className="group-rows mt-2 px-3 py-2 text-sm" role="status">
+          <p className="font-bold">{element.name} · {element.symbol} · {element.number}</p>
+          <p>Period {element.period} · {element.group ? `Group ${element.group}` : element.series}</p>
+          <p>{element.weight.startsWith("[") ? "Isotope mass number" : "Abridged atomic weight"}: {element.weight}</p>
+        </div>}
+        <button className="btn btn-soft mt-2 w-full" onClick={() => execNow({ op: "show_periodic_table", ...EMPTY_TABLE, focus: false })}>Clear table markings</button>
+        <Note>Tap an element or ask about groups, periods, and trends. Simu can circle elements and draw on this table.</Note>
+      </>}
       {active === "chem" && <ChemControls />}
       {particles && (
         <>
@@ -736,8 +759,11 @@ export function RightRail() {
   const menuOpen = useSim((s) => s.menuOpen);
   // Server render starts closed; wide screens open it right after hydration.
   const desktop = useSyncExternalStore(subscribeWide, () => window.matchMedia(WIDE).matches, () => false);
-  const [userOpen, setOpen] = useState<boolean | null>(null);
-  const controlsOpen = userOpen ?? desktop;
+  const tableCamera = useSim((s) => s.camera.preset === "periodic_table" ? s.camera.nonce : -1);
+  const [userOpen, setUserOpen] = useState<{ value: boolean; tableCamera: number } | null>(null);
+  const setOpen = (value: boolean) => setUserOpen({ value, tableCamera });
+  // A new table view needs the phone/tablet canvas; students can reopen tools.
+  const controlsOpen = tableCamera !== -1 && !desktop && userOpen?.tableCamera !== tableCamera ? false : userOpen?.value ?? desktop;
   const mod = useControls();
   const selection = useSelection();
   const showingSelection = Boolean(selection) && !menuOpen;

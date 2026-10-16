@@ -7,6 +7,8 @@ import { Quaternion, Vector3, type Group } from "three";
 import { useSim, type Annotation, type InfoCard, type VectorDef } from "@/lib/store";
 import { InfoCardView } from "../ui/infocard";
 import { livePosition } from "@/lib/world/runtime";
+import { useMotion } from "@/lib/useMotion";
+import { Appear } from "./appear";
 
 const UP = new Vector3(0, 1, 0);
 
@@ -37,6 +39,7 @@ function AnnotationView({ a }: { a: Annotation }) {
 
 function VectorView({ v }: { v: VectorDef }) {
   const ref = useFollow(v.target, v.origin, 0);
+  const animate = useMotion();
   const { len, quat } = useMemo(() => {
     const d = new Vector3(...v.vector);
     const len = Math.max(0.05, d.length());
@@ -44,6 +47,7 @@ function VectorView({ v }: { v: VectorDef }) {
   }, [v.vector]);
   return (
     <group ref={ref} position={v.origin ?? [0, -100, 0]}>
+      <Appear on={animate}>
       <group quaternion={quat}>
         <mesh position={[0, len / 2, 0]}>
           <cylinderGeometry args={[0.03, 0.03, len, 10]} />
@@ -61,6 +65,7 @@ function VectorView({ v }: { v: VectorDef }) {
           </Html>
         )}
       </group>
+      </Appear>
     </group>
   );
 }

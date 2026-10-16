@@ -6,10 +6,10 @@
 import { Euler, Quaternion } from "three";
 import { ASSETS, LIMITS, WORLDS, type Vec3 } from "./world/catalog";
 import { assetObject, type SceneObject } from "./world/scene";
-import { allSettled, emit, getBody, liveBodies, livePosition, waitFor } from "./world/runtime";
+import { allSettled, emit, getBody, liveBodies, livePosition, markFresh, waitFor } from "./world/runtime";
 import { fmt, toMetersPerSecond } from "./engine/projectile";
 import { fillPlaceholders } from "./ssp/validate";
-import { MODULE_FIELDS, type Command, type ScenePlan } from "./ssp/schema";
+import { MODULE_FIELDS, type Command, type ScenePlan, type Step } from "./ssp/schema";
 import { applyEnvironment } from "./environment";
 import { pickScene, projectileResult, useSim, type Explanation } from "./store";
 import { prefetchLine, speak, stopSpeaking, type VoiceRole } from "./tts";
@@ -48,7 +48,16 @@ export function skipSpeech() {
   skipLine?.();
 }
 
-export async function runPlan(plan: ScenePlan, source: Explanation["source"], opts: { replay?: boolean } = {}) {
+function explanationOf(plan: ScenePlan, source: Explanation["source"]): Explanation {
+  return { title: plan.title, reply: plan.reply, details: plan.details, assumptions: plan.assumptions, limitations: plan.limitations, supportLevel: plan.supportLevel, scope: plan.scope, source };
+}
+
+/**
+ * Plays a plan. With `steps`, the plan is only its envelope and the steps
+ * arrive while it plays (streamed from the director); finishPlan() later
+ * fills in what was written after them (follow-ups, details).
+ */
+export async function runPlan(plan: ScenePlan, source: Explanation["source"], opts: { replay?: boolean; steps?: AsyncIterable<Step> } = {}) {
   cancelPlayback();
   const ctl = new AbortController();
   controller = ctl;
@@ -59,16 +68,7 @@ export async function runPlan(plan: ScenePlan, source: Explanation["source"], op
     question: null,
     // Cards belong to the lesson that made them.
     cards: [],
-    explanation: {
-      title: plan.title,
-      reply: plan.reply,
-      details: plan.details,
-      assumptions: plan.assumptions,
-      limitations: plan.limitations,
-      supportLevel: plan.supportLevel,
-      scope: plan.scope,
-      source,
-    },
+    explanation: explanationOf(plan, source),
     followUps: plan.followUps,
     aiStatus: "playing",
     selectedId: null,
@@ -76,10 +76,26 @@ export async function runPlan(plan: ScenePlan, source: Explanation["source"], op
   if (plan.capability !== "none") s.set({ capability: plan.capability });
   if (plan.question) s.set({ topic: plan.question });
   if (!opts.replay) s.addMessage("assistant", plan.reply);
-  if (s.settings.voice) prefetchVoices(plan);
+  const kinds = new Map<string, VoiceRole>([["simu", "robot"]]);
+  // Voice is fetched one step ahead: ready in time, and a lesson the student
+  // interrupts pays for at most one step it never played.
+  const stepSource = opts.steps ?? (async function* () {
+    yield* plan.steps;
+  })();
+  const it = stepSource[Symbol.asyncIterator]();
+  const pull = () =>
+    it.next().then((r) => {
+      if (!r.done && !ctl.signal.aborted && st().settings.voice) prefetchVoices(r.value, kinds, plan.language);
+      return r;
+    });
 
   try {
-    for (const step of plan.steps) {
+    let next = pull();
+    for (;;) {
+      const r = await next;
+      if (r.done || ctl.signal.aborted) return;
+      const step = r.value;
+      next = pull();
       for (const cmd of step.commands) {
         if (ctl.signal.aborted) return;
         await exec(cmd, ctl.signal, plan.language);
@@ -93,17 +109,22 @@ export async function runPlan(plan: ScenePlan, source: Explanation["source"], op
   }
 }
 
-/** Warm the voice cache for every line that has no engine placeholders. */
-function prefetchVoices(plan: ScenePlan) {
-  const kinds = new Map<string, VoiceRole>([["simu", "robot"]]);
-  for (const step of plan.steps)
-    for (const c of step.commands) {
-      if (c.op === "spawn_character") kinds.set(c.id, c.character);
-      if (c.op === "speak" && !c.text.includes("{{")) {
-        const role = c.speaker === "narrator" ? "narrator" : (kinds.get(c.speaker) ?? (st().characters[c.speaker]?.kind as VoiceRole | undefined) ?? "robot");
-        void prefetchLine(c.text, role, plan.language);
-      }
+/** The rest of a streamed plan arrived: keep it for replay/saving and show its follow-ups. */
+export function finishPlan(plan: ScenePlan, source: Explanation["source"]) {
+  const s = st();
+  s.set({ lastPlan: plan, followUps: plan.followUps, explanation: explanationOf(plan, source) });
+  if (plan.question) s.set({ topic: plan.question });
+}
+
+/** Warm the voice cache for a step's lines that have no engine placeholders. */
+function prefetchVoices(step: Step, kinds: Map<string, VoiceRole>, lang: "en" | "id") {
+  for (const c of step.commands) {
+    if (c.op === "spawn_character") kinds.set(c.id, c.character);
+    if (c.op === "speak" && !c.text.includes("{{")) {
+      const role = c.speaker === "narrator" ? "narrator" : (kinds.get(c.speaker) ?? (st().characters[c.speaker]?.kind as VoiceRole | undefined) ?? "robot");
+      prefetchLine(c.text, role, lang);
     }
+  }
 }
 
 /** Restore the scene from before the last plan and play it again. */
@@ -162,10 +183,40 @@ function setModules(patch: Partial<Modules>) {
 }
 
 /** Molecules, atoms, particles and cells share the lab pedestal: one at a time. */
-function clearPedestal(keep: "chem" | "particles" | "cell") {
+function clearPedestal(keep: "chem" | "particles" | "cell" | "table") {
   const s = st();
+  if (keep !== "table" && s.camera.preset === "periodic_table") s.focus({ preset: "home" });
   if (keep !== "chem") for (const o of Object.values(s.objects)) if (o.type === "molecule" || o.type === "atom") s.removeObject(o.id);
   setModules({ particles: keep === "particles" ? st().modules.particles : null, cell: keep === "cell" ? st().modules.cell : null });
+}
+
+/**
+ * Illustrations placed inside a tree, bed or desk can't be seen. Slide them
+ * out toward the camera until they clear the big object's footprint.
+ */
+export function clearOfScenery(pos: Vec3, size: Vec3): Vec3 {
+  const s = st();
+  const cam = WORLDS[s.world].camera.position;
+  const reach = Math.max(size[0], size[2]) / 2;
+  const out: Vec3 = [...pos];
+  for (const o of Object.values(s.objects)) {
+    if (o.type !== "asset") continue;
+    const [w, h, d] = ASSETS[o.asset].size.map((v) => v * o.scale);
+    if (Math.max(w, d) < 1 || h < 1) continue; // small props don't hide anything
+    const [x, y, z] = o.position;
+    if (out[1] - size[1] / 2 > y + h) continue; // above it
+    const r = Math.max(w, d) / 2 + reach + 0.2;
+    const dx = out[0] - x;
+    const dz = out[2] - z;
+    if (Math.hypot(dx, dz) >= r) continue;
+    // Push along the line from the object toward the camera (in plan view).
+    const cx = cam[0] - x;
+    const cz = cam[2] - z;
+    const len = Math.hypot(cx, cz) || 1;
+    out[0] = x + (cx / len) * r;
+    out[2] = z + (cz / len) * r;
+  }
+  return out;
 }
 
 function defaultMoleculeSpot(): Vec3 {
@@ -183,6 +234,7 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       await sleep(450, signal);
       return;
     case "spawn_asset":
+      markFresh(c.id);
       s.upsertObject(
         assetObject(c.id, c.asset, c.position as Vec3, {
           rotation: [0, c.rotationY ?? 0, 0],
@@ -196,16 +248,18 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
         const o = st().objects[c.id];
         if (o) st().patchObject(c.id, { massKg: massFor(c.material, objectVolume(o)), color: c.color ?? o.color });
       }
-      await sleep(120, signal);
+      // A beat so several spawns build up one by one as they grow in.
+      await sleep(300, signal);
       return;
     case "spawn_primitive": {
       const [w, h, d] = c.size;
+      markFresh(c.id);
       s.upsertObject({
         id: c.id,
         type: "primitive",
         shape: c.shape,
         size: [w, h, d],
-        position: c.position as Vec3,
+        position: (c.physics ?? "none") === "none" ? clearOfScenery(c.position as Vec3, [w, h, d]) : (c.position as Vec3),
         rotation: [0, 0, 0],
         scale: 1,
         physics: c.physics ?? "none",
@@ -373,7 +427,8 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
         sides: c.sides,
         points: c.points as [number, number][] | undefined,
         path: c.path as Vec3[] | undefined,
-        position: c.position as Vec3,
+        // Drawn paths (arrows, lines) stay where they were drawn.
+        position: (c.physics ?? "none") === "none" && !c.path ? clearOfScenery(c.position as Vec3, c.size as Vec3) : (c.position as Vec3),
         rotation: (c.rotation as Vec3 | undefined) ?? [0, 0, 0],
         scale: 1,
         physics: c.physics ?? "none",
@@ -391,8 +446,9 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
         version: 0,
       };
       const vol = objectVolume(base);
+      markFresh(c.id);
       s.upsertObject({ ...base, massKg: c.material ? massFor(c.material, vol) : Math.min(50, Math.max(0.05, vol * 600)) });
-      await sleep(250, signal);
+      await sleep(380, signal);
       return;
     }
     case "morph_shape": {
@@ -439,7 +495,7 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       s.set({ cards: c.id === "all" ? [] : s.cards.filter((k) => k.id !== c.id) });
       return;
     case "show_orbits":
-      setModules({ orbits: { mode: c.mode, planets: c.planets?.length ? c.planets : ALL_PLANETS, focus: c.focus ?? null, daysPerSecond: c.daysPerSecond ?? (c.mode === "solar_system" ? 20 : c.mode === "earth_moon" ? 2 : 15), labels: c.labels ?? true } });
+      setModules({ orbits: { mode: c.mode, planets: c.planets?.length ? c.planets : ALL_PLANETS, focus: c.focus ?? null, daysPerSecond: c.daysPerSecond ?? (c.mode === "solar_system" ? 20 : c.mode === "earth_moon" ? 2 : 15), labels: c.labels ?? true, distances: s.modules.orbits?.distances ?? {} } });
       s.set({ capability: "orbits" });
       await sleep(500, signal);
       return;
@@ -551,6 +607,8 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
     case "show_periodic_table": {
       const { op: _op, focus: face, ...patch } = c;
       void _op;
+      // Switch teaching surfaces so a large atom/cell cannot obscure the board.
+      if (face !== false) clearPedestal("table");
       setModules({ periodicTable: { ...(s.modules.periodicTable ?? EMPTY_TABLE), ...patch } });
       if (face !== false) s.focus({ preset: "periodic_table" });
       await sleep(600, signal);
@@ -581,13 +639,15 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
     }
     case "show_annotation": {
       const rest = s.annotations.filter((a) => a.id !== c.id).slice(-(LIMITS.maxAnnotations - 1));
-      s.set({ annotations: [...rest, { id: c.id, text: c.text, target: c.target, position: c.position as Vec3 | undefined, tone: c.tone ?? "info" }] });
+      s.set({ annotations: [...rest, { id: c.id, text: fillPlaceholders(c.text, resolvePlaceholder), target: c.target, position: c.position as Vec3 | undefined, tone: c.tone ?? "info" }] });
       await sleep(300, signal);
       return;
     }
     case "show_vector": {
       const rest = s.vectors.filter((v) => v.id !== c.id).slice(-(LIMITS.maxVectors - 1));
-      s.set({ vectors: [...rest, { id: c.id, target: c.target, origin: c.origin as Vec3 | undefined, vector: c.vector as Vec3, color: c.color ?? "#facc15", label: c.label }] });
+      s.set({ vectors: [...rest, { id: c.id, target: c.target, origin: c.origin as Vec3 | undefined, vector: c.vector as Vec3, color: c.color ?? "#facc15", label: c.label && fillPlaceholders(c.label, resolvePlaceholder) }] });
+      // Arrows grow in one after another instead of all at once.
+      await sleep(380, signal);
       return;
     }
     case "show_formula":

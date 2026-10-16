@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { EXAMPLES } from "@/lib/ai/examples";
-import { lessonMode } from "@/lib/ai/director";
+import { isQuotaError, lessonMode } from "@/lib/ai/director";
 import { systemPrompt } from "@/lib/ai/prompt";
 import { commandReference } from "@/lib/ai/docs";
 import { Command } from "@/lib/ssp/schema";
@@ -96,9 +96,15 @@ describe("new module commands", () => {
 describe("lessonMode", () => {
   const h = [{ role: "user" as const, text: "series circuit" }];
   it("keeps quick plans for scene tweaks and short follow-ups", () => {
-    expect(lessonMode({ prompt: "break one of the bulbs", history: [] })).toBe("quick");
-    expect(lessonMode({ prompt: "make gravity twice as strong", history: [] })).toBe("quick");
+    expect(lessonMode({ prompt: "break one of the bulbs", history: h, scene: { capability: "circuit" } })).toBe("quick");
+    expect(lessonMode({ prompt: "make gravity twice as strong", history: h, scene: { capability: "gravity" } })).toBe("quick");
     expect(lessonMode({ prompt: "what happens if one of the bulb broke?", history: h })).toBe("quick");
+    expect(lessonMode({ prompt: "Change the angle to 60 degrees.", history: h, scene: { capability: "projectile" } })).toBe("quick");
+  });
+  it("gives the first question and new topics a full lesson", () => {
+    expect(lessonMode({ prompt: "Throw a basketball at 40 degrees at 20 km/h, how far does it go?", history: [] })).toBe("lesson");
+    expect(lessonMode({ prompt: "break one of the bulbs", history: [] })).toBe("lesson");
+    expect(lessonMode({ prompt: "Throw a ball at 30 degrees", history: h, scene: { capability: "gravity" } })).toBe("lesson");
   });
   it("gives new questions a full lesson", () => {
     expect(lessonMode({ prompt: "What happens if gravity disappears in my bedroom?", history: [] })).toBe("lesson");
@@ -138,5 +144,14 @@ describe("environment follows gravity", () => {
   });
   it("goes back to Earth after a Moon restyle", () => {
     expect(ops(validatePlan(plan([{ op: "set_gravity", gravity: [0, -9.81, 0] }]), { ...sceneFor("court"), environment: { preset: "moon" } }))).toEqual(["env:earth", "set_gravity"]);
+  });
+});
+
+describe("isQuotaError", () => {
+  it("spots billing and quota failures but not other errors", () => {
+    expect(isQuotaError(new Error('{"error":{"code":402,"message":"Your prepayment credits are depleted."}}'))).toBe(true);
+    expect(isQuotaError(new Error('{"error":{"code":429,"status":"RESOURCE_EXHAUSTED"}}'))).toBe(true);
+    expect(isQuotaError(new Error('{"error":{"code":500,"status":"INTERNAL"}}'))).toBe(false);
+    expect(isQuotaError(new Error("fetch failed"))).toBe(false);
   });
 });

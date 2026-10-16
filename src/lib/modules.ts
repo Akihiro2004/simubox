@@ -2,7 +2,7 @@
 // levers, particles, cells, globe) plus the resolver that turns
 // {{placeholders}} into engine-computed text.
 
-import { MOON, PLANETS, moonIllumination, moonPhaseName, seasonNorth, subsolarLatitude, type PlanetId } from "./engine/astro";
+import { MOON, PLANETS, orbitOf, sunlightVsEarth, moonIllumination, moonPhaseName, seasonNorth, subsolarLatitude, type PlanetId } from "./engine/astro";
 import { PLACES, distanceKm } from "./engine/geo";
 import { FLUIDS, MATERIALS, floatFraction, phaseAt, rmsSpeed, solveCircuit, solveLever, wavePeriod, waveSpeed, type FluidId, type MaterialId, type SubstanceId } from "./engine/physics2";
 import { measureShape } from "./engine/geometry";
@@ -43,7 +43,7 @@ export interface Mark {
 
 export interface Modules {
   periodicTable: PeriodicTableState | null;
-  orbits: { mode: "solar_system" | "earth_moon" | "seasons"; planets: PlanetId[]; focus: PlanetId | "sun" | "moon" | null; daysPerSecond: number; labels: boolean } | null;
+  orbits: { mode: "solar_system" | "earth_moon" | "seasons"; planets: PlanetId[]; focus: PlanetId | "sun" | "moon" | null; daysPerSecond: number; labels: boolean; /** Planets moved to another distance (AU), e.g. "what if Earth and Neptune swapped?" */ distances: Partial<Record<PlanetId, number>> } | null;
   fluid: FluidId | null;
   plot: { functions: PlotFn[]; points: PlotPoint[]; vectors: PlotVec[] } | null;
   circuit: { layout: "series" | "parallel"; voltage: number; bulbs: number; resistance: number; closed: boolean; /** blown bulbs, 0-based */ broken: number[] } | null;
@@ -59,7 +59,7 @@ export const ALL_PLANETS = Object.keys(PLANETS) as PlanetId[];
 /** Starting state for each module when something switches it on. */
 export const MODULE_DEFAULTS: { [K in keyof Modules]-?: NonNullable<Modules[K]> } = {
   periodicTable: EMPTY_TABLE,
-  orbits: { mode: "solar_system", planets: ALL_PLANETS, focus: null, daysPerSecond: 20, labels: true },
+  orbits: { mode: "solar_system", planets: ALL_PLANETS, focus: null, daysPerSecond: 20, labels: true, distances: {} },
   fluid: "fresh_water",
   plot: { functions: [], points: [], vectors: [] },
   circuit: { layout: "series", voltage: 6, bulbs: 2, resistance: 10, closed: true, broken: [] },
@@ -156,12 +156,25 @@ export function moduleValue(name: string, arg: string | undefined, m: Modules, o
     case "period":
     case "planet_gravity":
     case "distance_au":
+    case "sunlight":
+    case "sunlight_change":
     case "radius_km": {
       const p = arg ? PLANETS[arg as PlanetId] : undefined;
       if (!p) return undefined;
-      if (name === "period") return p.periodDays < 1000 ? `${f(p.periodDays, 0)} Earth days` : `${f(p.periodDays / 365.26, 1)} Earth years`;
+      // Moved planets (set_module orbits distances) report their new orbit.
+      const o = orbitOf(p.id, m.orbits?.distances);
+      if (name === "period") return o.periodDays < 1000 ? `${f(o.periodDays, 0)} Earth days` : `${f(o.periodDays / 365.26, 1)} Earth years`;
       if (name === "planet_gravity") return `${f(p.gravity)} m/s²`;
-      if (name === "distance_au") return `${f(p.distanceAU)} AU`;
+      if (name === "distance_au") return `${f(o.distanceAU)} AU`;
+      if (name === "sunlight_change") {
+        // Compared with the planet's real orbit (inverse-square law).
+        const x = sunlightVsEarth(o.distanceAU) / sunlightVsEarth(p.distanceAU);
+        return x >= 0.995 && x <= 1.005 ? "the same sunlight as in its real orbit" : x > 1 ? `${f(x, 1)} times the sunlight it gets in its real orbit` : `${f(x * 100, x < 0.01 ? 2 : 1)}% of the sunlight it gets in its real orbit`;
+      }
+      if (name === "sunlight") {
+        const x = sunlightVsEarth(o.distanceAU);
+        return x >= 0.995 && x <= 1.005 ? "the same sunlight Earth gets" : x > 1 ? `${f(x, 1)} times the sunlight Earth gets` : `${f(x * 100, x < 0.01 ? 2 : 1)}% of the sunlight Earth gets`;
+      }
       return `${p.radiusKm.toLocaleString("en-US")} km`;
     }
     case "volume":
@@ -172,6 +185,11 @@ export function moduleValue(name: string, arg: string | undefined, m: Modules, o
       const meas = measureShape(o.shape, o.size.map((v) => v * o.scale) as [number, number, number], o.sides);
       const v = name === "volume" ? meas.volume : meas.surfaceArea;
       return v === undefined ? undefined : `${f(v, 3)} ${name === "volume" ? "m³" : "m²"}`;
+    }
+    case "mass": {
+      const o = arg ? objects[arg] : undefined;
+      if (!o) return undefined;
+      return o.massKg < 1 ? `${f(o.massKg * 1000, 0)} g` : `${f(o.massKg, o.massKg < 10 ? 2 : 1)} kg`;
     }
     case "density":
     case "float_fraction": {

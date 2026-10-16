@@ -3,10 +3,10 @@
 import { Html, Line } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
-import { Vector3, type Group, type Mesh } from "three";
+import { MathUtils, Vector3, type Group, type Mesh } from "three";
 import { useSim } from "@/lib/store";
 import { orbitClock, type Modules } from "@/lib/modules";
-import { PLANETS, displayDistance, displayRadius, moonIllumination, moonPhaseName, orbitAngle, seasonNorth, subsolarLatitude, MOON, type PlanetId } from "@/lib/engine/astro";
+import { PLANETS, orbitOf, displayDistance, displayRadius, moonIllumination, moonPhaseName, orbitAngle, seasonNorth, subsolarLatitude, MOON, type PlanetId } from "@/lib/engine/astro";
 import { getEarthTexture, useSunLitMaterial } from "./earth";
 
 const Y = 1.4; // orbit plane height above the deck
@@ -56,17 +56,26 @@ function PlanetBody({ id, radius, sun, tiltDeg, children }: { id: PlanetId; radi
 
 function SolarSystem({ o, paused }: { o: NonNullable<Modules["orbits"]>; paused: boolean }) {
   const groups = useRef<Record<string, Group | null>>({});
+  const rings = useRef<Record<string, Group | null>>({});
+  // Each planet's angle and drawn orbit radius, advanced every frame so a
+  // moved planet keeps its place in its orbit and glides to the new distance.
+  const live = useRef<Record<string, { a: number; r: number }>>({});
   const select = useSim((s) => s.set);
+  const unit = useMemo(() => circle(1, 0), []);
   useFrame((_, dt) => {
-    if (!paused) orbitClock.day += Math.min(dt, 0.05) * o.daysPerSecond;
+    const step = Math.min(dt, 0.05);
+    if (!paused) orbitClock.day += step * o.daysPerSecond;
     for (const id of o.planets) {
       const g = groups.current[id];
       if (!g) continue;
-      const p = PLANETS[id];
+      const orbit = orbitOf(id, o.distances);
+      const target = displayDistance(orbit.distanceAU);
       // Spread the start positions so planets don't all line up.
-      const a = orbitAngle(p.periodDays, orbitClock.day) + Object.keys(PLANETS).indexOf(id) * 1.7;
-      const r = displayDistance(p.distanceAU);
-      g.position.set(Math.cos(a) * r, Y, -Math.sin(a) * r);
+      const st = (live.current[id] ??= { a: orbitAngle(orbit.periodDays, orbitClock.day) + Object.keys(PLANETS).indexOf(id) * 1.7, r: target });
+      if (!paused) st.a += (step * o.daysPerSecond * Math.PI * 2) / orbit.periodDays;
+      st.r = MathUtils.damp(st.r, target, 1.6, step);
+      g.position.set(Math.cos(st.a) * st.r, Y, -Math.sin(st.a) * st.r);
+      rings.current[id]?.scale.set(st.r, 1, st.r);
     }
   });
   return (
@@ -74,11 +83,12 @@ function SolarSystem({ o, paused }: { o: NonNullable<Modules["orbits"]>; paused:
       <Sun />
       {o.planets.map((id) => {
         const p = PLANETS[id];
-        const r = displayDistance(p.distanceAU);
         const focused = o.focus === id;
         return (
           <group key={id}>
-            <Line points={circle(r, Y)} color={focused ? "#ffc531" : "#9fb3d9"} lineWidth={focused ? 2 : 1} transparent opacity={focused ? 1 : 0.45} />
+            <group ref={(g) => void (rings.current[id] = g)} position={[0, Y, 0]} scale={0.001}>
+              <Line points={unit} color={focused ? "#ffc531" : "#9fb3d9"} lineWidth={focused ? 2 : 1} transparent opacity={focused ? 1 : 0.45} />
+            </group>
             <group ref={(g) => void (groups.current[id] = g)} onClick={(e) => (e.stopPropagation(), select({ selectedId: null }))}>
               <PlanetBody id={id} radius={displayRadius(p.radiusKm)} sun={SUN} tiltDeg={p.tiltDeg} />
               {o.labels && (
@@ -91,7 +101,7 @@ function SolarSystem({ o, paused }: { o: NonNullable<Modules["orbits"]>; paused:
         );
       })}
       <Html position={[0, 0.05, displayDistance(32) + 0.6]} center zIndexRange={[5, 0]} style={{ pointerEvents: "none" }}>
-        <div className="ground-label whitespace-nowrap">Distances and sizes are squeezed to fit. Orbit times are real.</div>
+        <div className="ground-label whitespace-nowrap">{Object.keys(o.distances).length ? "Some planets are moved for this what-if. Their years follow Kepler's law." : "Distances and sizes are squeezed to fit. Orbit times are real."}</div>
       </Html>
     </>
   );

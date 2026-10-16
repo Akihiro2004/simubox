@@ -27,6 +27,7 @@ export function SimuFace({ size = 28 }: { size?: number }) {
 
 export function ExplanationCard() {
   const ex = useSim((s) => s.explanation);
+  const readingTable = useSim((s) => s.world === "lab" && s.camera.preset === "periodic_table");
   // Step aside while a prediction question is waiting, so the question has the stage.
   const asking = useSim((s) => Boolean(s.question && s.question.picked === null));
   const formula = useSim((s) => s.formula);
@@ -120,6 +121,17 @@ export function ExplanationCard() {
 
       {ex.source === "offline-demo" && <p className="mt-3 text-[12px] font-semibold leading-snug text-ink-3">Offline demo: a pre-written lesson, because the AI isn&apos;t connected on this server.</p>}
     </>
+  );
+
+  if (readingTable) return mobileOpen ? (
+    <aside className="glass sheet scroll-thin fixed left-4 top-[80px] z-30 max-h-[70dvh] w-[min(340px,calc(100vw-32px))] overflow-y-auto rounded-[22px] p-4" aria-label="Simu's answer">
+      <button className="btn btn-quiet mb-2 text-sm" onClick={() => setMobileOpen(false)}>Back to the table</button>
+      {body}
+    </aside>
+  ) : (
+    <button className="glass btn fixed bottom-[100px] left-4 z-20 flex h-11 items-center gap-2 rounded-full px-3 text-sm font-bold sm:bottom-7 sm:left-6" onClick={() => setMobileOpen(true)}>
+      <SimuFace size={24} /> Read explanation
+    </button>
   );
 
   return (

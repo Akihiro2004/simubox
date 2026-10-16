@@ -86,6 +86,23 @@ describe("periodic table", () => {
     expect(desktop.position[0]).toBeLessThan(4);
     expect(mobile.position[0]).toBeGreaterThan(desktop.position[0]);
     expect(desktop.position[2]).toBe(desktop.target[2]);
-    expect(desktop.target).toEqual(mobile.target);
+    expect(desktop.target[0]).toEqual(mobile.target[0]);
+    expect(desktop.position[1]).toEqual(desktop.target[1]);
+  });
+
+  it("clears an obstructing pedestal and returns to the room when building an atom", async () => {
+    vi.useFakeTimers();
+    useSim.setState(freshScene("lab"));
+    execNow({ op: "build_molecule", id: "water", molecule: "H2O" });
+    const furniture = Object.values(useSim.getState().objects).filter((o) => o.type === "asset").map((o) => o.id);
+    expect(Object.values(useSim.getState().objects).some((o) => o.type === "molecule")).toBe(true);
+    execNow({ op: "show_periodic_table", elements: [9] });
+    expect(Object.values(useSim.getState().objects).some((o) => o.type === "molecule")).toBe(false);
+    for (const id of furniture) expect(useSim.getState().objects[id]).toBeDefined();
+    execNow({ op: "build_atom", id: "fluorine", element: "F" });
+    expect(useSim.getState().camera.preset).toBe("home");
+    expect(useSim.getState().objects.fluorine).toMatchObject({ type: "atom", element: "F" });
+    expect(useSim.getState().modules.periodicTable?.elements).toEqual([9]);
+    await vi.runAllTimersAsync();
   });
 });

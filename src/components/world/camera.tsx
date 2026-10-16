@@ -85,7 +85,7 @@ export function CameraRig({ animate }: { animate: boolean }) {
       minDistance={2.5}
       maxDistance={world === "court" ? 1500 : 100}
       minPolarAngle={0.12}
-      maxPolarAngle={1.42}
+      maxPolarAngle={cam.preset === "periodic_table" ? Math.PI / 2 : 1.42}
       smoothTime={animate ? 0.35 : 0.01}
       draggingSmoothTime={0.1}
       dollyToCursor

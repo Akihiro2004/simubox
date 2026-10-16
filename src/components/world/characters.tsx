@@ -309,9 +309,12 @@ function SpeechBubble({ c, height }: { c: Character; height: number }) {
   const speech = useSim((s) => (s.speech?.speaker === c.id ? s.speech : null));
   const bubble = useRef<HTMLButtonElement>(null);
   if (!speech) return null;
+  // Rendered in a layer above the lesson cards: the line being spoken must never hide behind them.
+  const layer = document.getElementById("bubble-layer");
   return (
     <Html
       position={[0, height, 0]}
+      portal={layer ? { current: layer } : undefined}
       zIndexRange={[40, 20]}
       style={{ pointerEvents: "auto" }}
       // Keep the whole bubble on screen; the tail slides to keep pointing at the speaker.
@@ -335,6 +338,8 @@ function SpeechBubble({ c, height }: { c: Character; height: number }) {
   );
 }
 
+const near = new Vector3();
+
 export function CharacterView({ c, animate }: { c: Character; animate: boolean }) {
   const partsRef = useRef<Parts>({ root: null, body: null, head: null, armL: null, armR: null, legL: null, legR: null, eyes: null });
   const selected = useSim((s) => s.selectedId === c.id);
@@ -351,6 +356,15 @@ export function CharacterView({ c, animate }: { c: Character; animate: boolean }
 
   // Only the first position is a prop; walking moves the group from useFrame.
   const [initial] = useState(c.position);
+  // A character right in front of the camera would fill the screen: shrink it
+  // out of the way (fully gone at 1.8 m, fully back from 3 m). Its bubble stays.
+  const body = useRef<Group>(null);
+  useFrame(({ camera }) => {
+    const root = partsRef.current.root;
+    if (!root || !body.current) return;
+    const d = camera.position.distanceTo(root.getWorldPosition(near));
+    body.current.scale.setScalar(Math.max(0.001, MathUtils.smoothstep(d, 1.8, 3)));
+  });
   const height = robot ? 1.55 : c.kind === "kid" ? 1.35 : 1.7;
   return (
     <group
@@ -366,11 +380,13 @@ export function CharacterView({ c, animate }: { c: Character; animate: boolean }
       }}
       onPointerOut={() => (document.body.style.cursor = "")}
     >
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.012, 0]}>
-        <circleGeometry args={[robot ? 0.3 : 0.28, 24]} />
-        <meshBasicMaterial color="#0f172a" transparent opacity={0.18} depthWrite={false} />
-      </mesh>
-      {robot ? <Robot c={c} partsRef={partsRef} /> : <Person c={c} partsRef={partsRef} />}
+      <group ref={body}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.012, 0]}>
+          <circleGeometry args={[robot ? 0.3 : 0.28, 24]} />
+          <meshBasicMaterial color="#0f172a" transparent opacity={0.18} depthWrite={false} />
+        </mesh>
+        {robot ? <Robot c={c} partsRef={partsRef} /> : <Person c={c} partsRef={partsRef} />}
+      </group>
       <SpeechBubble c={c} height={height} />
       {selected && (
         <Html position={[0, -0.05, 0]} center zIndexRange={[10, 0]} style={{ pointerEvents: "none" }}>

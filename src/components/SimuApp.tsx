@@ -63,6 +63,8 @@ export default function SimuApp() {
       ) : (
         gl && <SimuCanvas />
       )}
+      {/* Speech bubbles from the 3D scene render here, above the lesson cards. */}
+      <div id="bubble-layer" className="pointer-events-none fixed inset-0 z-[35]" />
       <TopBar />
       <Metrics />
       <MenuPanel />

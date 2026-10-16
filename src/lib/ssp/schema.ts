@@ -36,10 +36,13 @@ export const ARG_PLACEHOLDERS = {
   volume: "shape id",
   surface_area: "shape id",
   float_fraction: "object id",
+  mass: "object id (its real mass in the physics engine)",
   density: "object id",
   period: "planet id",
   planet_gravity: "planet id",
   distance_au: "planet id",
+  sunlight: "planet id (sunlight it gets compared with Earth today; follows moved orbits)",
+  sunlight_change: "planet id (sunlight now compared with its own real orbit, e.g. after a swap)",
   radius_km: "planet id",
   distance_km: "two place or mark ids joined by ~, e.g. london~new_york",
 } as const;
@@ -49,7 +52,7 @@ export const ARG_PLACEHOLDERS = {
  * are partial and strict: unknown fields are rejected so mistakes get repaired.
  */
 export const MODULE_FIELDS = {
-  orbits: z.strictObject({ mode: z.enum(["solar_system", "earth_moon", "seasons"]), planets: z.array(z.enum(PLANET_IDS)).min(1).max(8), focus: z.enum([...PLANET_IDS, "sun", "moon"]).nullable(), daysPerSecond: num(0, 400), labels: z.boolean() }).partial(),
+  orbits: z.strictObject({ mode: z.enum(["solar_system", "earth_moon", "seasons"]), planets: z.array(z.enum(PLANET_IDS)).min(1).max(8), focus: z.enum([...PLANET_IDS, "sun", "moon"]).nullable(), daysPerSecond: num(0, 400), labels: z.boolean(), distances: z.partialRecord(z.enum(PLANET_IDS), num(0.1, 60)) }).partial(),
   fluid: z.strictObject({ fluid: z.enum(FLUID_IDS) }).partial(),
   circuit: z.strictObject({ layout: z.enum(["series", "parallel"]), voltage: num(0, 24), bulbs: z.number().int().min(1).max(4), resistanceOhms: num(1, 100), switchClosed: z.boolean(), brokenBulbs: z.array(z.number().int().min(1).max(4)).max(4) }).partial(),
   wave: z.strictObject({ kind: z.enum(["transverse", "longitudinal"]), amplitude: num(0.05, 1.2), frequency: num(0.1, 4), wavelength: num(0.5, 6) }).partial(),
@@ -231,7 +234,7 @@ export const Command = z.discriminatedUnion("op", [
     set: z
       .record(z.string(), z.unknown())
       .describe(
-        "only the fields to change. orbits: mode, planets, focus, daysPerSecond, labels. fluid: fluid. circuit: layout, voltage, bulbs, resistanceOhms, switchClosed, brokenBulbs (1-based bulb numbers that are blown; [] fixes them all). wave: kind, amplitude, frequency, wavelength. lever: leftMassKg, leftDistanceM, rightMassKg, rightDistanceM. particles: substance, temperatureC. cell: kind, highlight (part or null). globe: view, spin, focus (place id or null)",
+        "only the fields to change. orbits: mode, planets, focus, daysPerSecond, labels, distances ({planet: AU} moves planets to new orbits, e.g. {earth: 30.07, neptune: 1} swaps them; {} puts every planet back). fluid: fluid. circuit: layout, voltage, bulbs, resistanceOhms, switchClosed, brokenBulbs (1-based bulb numbers that are blown; [] fixes them all). wave: kind, amplitude, frequency, wavelength. lever: leftMassKg, leftDistanceM, rightMassKg, rightDistanceM. particles: substance, temperatureC. cell: kind, highlight (part or null). globe: view, spin, focus (place id or null)",
       ),
   }),
   z.object({

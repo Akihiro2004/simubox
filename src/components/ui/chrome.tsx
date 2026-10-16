@@ -1,13 +1,13 @@
 "use client";
 
-import { Bed, Bookmark, Clock, FlaskConical, Globe, LogIn, LogOut, Menu, MessageCircleQuestion, MessageSquare, Orbit, Plus, Settings, Shapes, Sigma, Trash, TreePine, Trophy, User, Droplets, Wrench, X } from "lucide-react";
+import { Bed, Bookmark, Clock, FlaskConical, Globe, LogIn, LogOut, Menu, MessageCircleQuestion, MessageSquare, Orbit, Plus, Settings, Shapes, Sigma, Trash, TreePine, Trophy, User, Droplets, Volume2, VolumeX, Wrench, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSim } from "@/lib/store";
 import { signIn, signOutUser, useAuth } from "@/lib/firebase";
 import { deleteExperiment, listExperiments, restoreExperiment, saveExperiment, type SavedExperiment } from "@/lib/saves";
 import { cancelPlayback } from "@/lib/player";
-import { ttsSupported } from "@/lib/tts";
+import { stopSpeaking, ttsSupported } from "@/lib/tts";
 import type { WorldId } from "@/lib/world/catalog";
 
 const WORLD_ITEMS: { id: WorldId; name: string; hint: string; icon: typeof Bed }[] = [
@@ -52,12 +52,33 @@ export function TopBar() {
         )}
       </div>
       <div className="pointer-events-auto flex gap-2">
+        <MuteButton />
         <button className={toolClass} aria-label="Settings" aria-expanded={useSim.getState().settingsOpen} onClick={() => set({ settingsOpen: !useSim.getState().settingsOpen, menuOpen: false, transcriptOpen: false })}>
           <Settings size={20} />
         </button>
         <AccountButton photo={user?.photo ?? null} name={user?.name ?? null} />
       </div>
     </header>
+  );
+}
+
+/** Muted = no voice is generated or played at all; captions still show. */
+function MuteButton() {
+  const voice = useSim((s) => s.settings.voice);
+  const update = useSim((s) => s.updateSettings);
+  return (
+    <button
+      className={toolClass}
+      aria-label={voice ? "Mute voice" : "Unmute voice"}
+      aria-pressed={!voice}
+      title={voice ? "Mute voice" : "Unmute voice"}
+      onClick={() => {
+        if (voice) stopSpeaking();
+        update({ voice: !voice });
+      }}
+    >
+      {voice ? <Volume2 size={20} /> : <VolumeX size={20} />}
+    </button>
   );
 }
 

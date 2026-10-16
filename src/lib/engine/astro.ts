@@ -52,6 +52,21 @@ export function orbitAngle(periodDays: number, days: number): number {
   return ((days / periodDays) % 1) * Math.PI * 2;
 }
 
+/**
+ * A planet's orbit, optionally moved to another distance from the Sun. A moved
+ * planet's year follows Kepler's third law: T (years) = a (AU) ^ 1.5.
+ */
+export function orbitOf(id: PlanetId, distances?: Partial<Record<PlanetId, number>>): { distanceAU: number; periodDays: number } {
+  const p = PLANETS[id];
+  const a = distances?.[id];
+  return a === undefined ? { distanceAU: p.distanceAU, periodDays: p.periodDays } : { distanceAU: a, periodDays: a ** 1.5 * 365.256 };
+}
+
+/** Sunlight at `au` compared with what Earth gets now (inverse-square law). */
+export function sunlightVsEarth(au: number): number {
+  return 1 / (au * au);
+}
+
 /** Kepler's third law ratio T²/a³ in years²/AU³ (≈ 1 for every planet). */
 export function keplerRatio(p: Planet): number {
   const years = p.periodDays / 365.256;

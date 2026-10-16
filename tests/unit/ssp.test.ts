@@ -174,3 +174,59 @@ describe("gemini schema", () => {
     for (const k of ["gravity", "projectile", "molecule", "atom", "concept", "too_advanced", "off_topic", "unsafe", '"simu"']) expect(p).toContain(k);
   });
 });
+
+describe("firestore rules", () => {
+  it("let students save in every world", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { WORLD_IDS } = await import("@/lib/world/catalog");
+    const rules = readFileSync("firestore.rules", "utf8");
+    for (const w of WORLD_IDS) expect(rules).toContain(`'${w}'`);
+  });
+});
+
+describe("what-if orbits", () => {
+  it("moves planets with Kepler years and fills label placeholders", async () => {
+    const { orbitOf } = await import("@/lib/engine/astro");
+    const { moduleValue, MODULE_DEFAULTS } = await import("@/lib/modules");
+    const swapped = { earth: 30.07, neptune: 1 };
+    expect(orbitOf("earth", swapped).periodDays / 365.256).toBeCloseTo(164.9, 0);
+    expect(orbitOf("neptune", swapped).periodDays).toBeCloseTo(365.256, 2);
+    const m = { ...Object.fromEntries(Object.keys(MODULE_DEFAULTS).map((k) => [k, null])), orbits: { ...MODULE_DEFAULTS.orbits, distances: swapped } } as never;
+    expect(moduleValue("distance_au", "earth", m, {})).toBe("30.07 AU");
+    expect(moduleValue("sunlight", "earth", m, {})).toBe("0.11% of the sunlight Earth gets");
+    expect(moduleValue("sunlight", "neptune", m, {})).toBe("the same sunlight Earth gets");
+    expect(moduleValue("sunlight_change", "neptune", m, {})).toBe("904 times the sunlight it gets in its real orbit");
+    const ok = validatePlan(plan([{ op: "show_annotation", id: "far", text: "Year: {{period:earth}}" }, { op: "show_annotation", id: "bad", text: "{{period:pluto}}" }, { op: "set_module", module: "orbits", set: { distances: swapped } }]), bedroom);
+    if (!ok.ok) throw new Error(ok.error);
+    expect(ok.issues.map((i) => i.message)).toEqual(["unknown planet in {{period:pluto}}"]);
+  });
+});
+
+describe("mass placeholder", () => {
+  it("reports an object's engine mass with a sensible unit", async () => {
+    const { moduleValue, MODULE_DEFAULTS } = await import("@/lib/modules");
+    const m = Object.fromEntries(Object.keys(MODULE_DEFAULTS).map((k) => [k, null])) as never;
+    expect(moduleValue("mass", "a", m, { a: { massKg: 0.058 } } as never)).toBe("58 g");
+    expect(moduleValue("mass", "b", m, { b: { massKg: 7.26 } } as never)).toBe("7.26 kg");
+    const r = validatePlan(plan([{ op: "show_annotation", id: "n", text: "{{mass:red_ball}}", target: "red_ball" }, { op: "show_annotation", id: "x", text: "{{mass:ghost}}" }]), bedroom);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.issues.map((i) => i.message)).toEqual(["unknown object in {{mass:ghost}}"]);
+  });
+});
+
+describe("clearOfScenery", () => {
+  it("moves an illustration out of a tree, toward the camera, and leaves open space alone", async () => {
+    const { useSim, freshScene } = await import("@/lib/store");
+    const { clearOfScenery } = await import("@/lib/player");
+    const { ASSETS, WORLDS } = await import("@/lib/world/catalog");
+    useSim.setState(freshScene("park"));
+    const tree = Object.values(useSim.getState().objects).find((o) => o.type === "asset" && o.id.startsWith("tree"))!;
+    if (tree.type !== "asset") throw new Error("no tree");
+    const [w, , d] = ASSETS[tree.asset].size.map((v) => v * tree.scale);
+    const moved = clearOfScenery([tree.position[0], 1.5, tree.position[2]], [0.5, 0.5, 0.5]);
+    expect(Math.hypot(moved[0] - tree.position[0], moved[2] - tree.position[2])).toBeGreaterThanOrEqual(Math.max(w, d) / 2 + 0.25);
+    const cam = WORLDS.park.camera.position;
+    expect(Math.hypot(moved[0] - cam[0], moved[2] - cam[2])).toBeLessThan(Math.hypot(tree.position[0] - cam[0], tree.position[2] - cam[2]));
+    expect(clearOfScenery([0, 1, 0.5], [0.5, 0.5, 0.5])).toEqual([0, 1, 0.5]);
+  });
+});

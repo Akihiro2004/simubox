@@ -4,6 +4,7 @@ import { RoundedBox } from "@react-three/drei";
 import { useEffect, useMemo } from "react";
 import { CanvasTexture, SRGBColorSpace } from "three";
 import { useSim } from "@/lib/store";
+import { execNow } from "@/lib/player";
 import { EMPTY_TABLE, PERIODIC_ELEMENTS, TABLE_SIZE, elementPoint, tableSelection, type PeriodicTableState } from "@/lib/periodic-table";
 
 const COLORS = { s: "#f3c9a6", p: "#b4dbce", d: "#c1d6ed", f: "#d8c7e6" };
@@ -62,8 +63,7 @@ function paintTable(ctx: CanvasRenderingContext2D, state: PeriodicTableState) {
     ctx.fillRect(x, 557, 25, 25);
     text(`${block.toUpperCase()} REGION`, x + 37, 577, 21, "#50696a", 600);
   }
-  text("Atomic number", 440, 635, 20, "#748583");
-  text("Symbol / name / abridged atomic weight", 440, 665, 20, "#748583");
+  text("Each tile: atomic number · symbol · name · abridged atomic weight", 440, 525, 20, "#748583");
   text("IUPAC · 4 MAY 2022     |     [n] = isotope mass number; weights shown without uncertainties", 72, 1480, 18, "#657879");
 
   const anchor = (at: number | [number, number]) => {
@@ -121,9 +121,7 @@ export function PeriodicTable({ x }: { x: number }) {
       </RoundedBox>
       <mesh position={[0, 0, .04]} onClick={(e) => {
         e.stopPropagation();
-        const s = useSim.getState();
-        s.focus({ preset: "periodic_table" });
-        if (!e.uv) return;
+        if (!e.uv) { execNow({ op: "show_periodic_table" }); return; }
         const u = e.uv.x, v = 1 - e.uv.y;
         const hit = PERIODIC_ELEMENTS.find((el) => {
           const [x, y] = elementPoint(el.number);
@@ -131,8 +129,8 @@ export function PeriodicTable({ x }: { x: number }) {
         });
         if (hit) {
           const family = hit.group ? `Group ${hit.group}` : hit.series;
-          s.set({ modules: { ...s.modules, periodicTable: { ...state, elements: [hit.number], groups: [], periods: [], caption: `${hit.number} · ${hit.name} (${hit.symbol}) · Period ${hit.period} · ${family}` } } });
-        }
+          execNow({ op: "show_periodic_table", elements: [hit.number], groups: [], periods: [], caption: `${hit.number} · ${hit.name} (${hit.symbol}) · Period ${hit.period} · ${family}` });
+        } else execNow({ op: "show_periodic_table" });
       }}>
         <planeGeometry args={[3.44, 2.15]} />
         <meshBasicMaterial map={texture} toneMapped={false} />
