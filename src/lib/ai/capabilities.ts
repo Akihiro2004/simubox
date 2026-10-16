@@ -47,8 +47,8 @@ export const CAPABILITY_DEFS: CapabilityDef[] = [
     world: "lab",
     support: "visual",
     summary:
-      "Schematic Bohr-model atoms for elements 1-20 (H to Ca): build_atom with the element symbol. Shows protons, neutrons and electron shells. It is a simplified model, not a literal picture.",
-    keywords: /atom|electron|proton|neutron|nucleus|shell|element|periodic|atom|elektron|inti/i,
+      "The lab wall has a full 118-element periodic table: show_periodic_table faces it, highlights atomic numbers/groups/periods and draws arrows/circles/notes on it. Use it for periodic-table questions. Separate schematic Bohr atoms support elements 1-20 only (build_atom); they are simplified models.",
+    keywords: /atom|electron|proton|neutron|nucleus|shell|element|periodic|tabel periodik|unsur|halogen|noble gas|alkali|elektron|inti/i,
   },
   {
     id: "concept",

@@ -9,6 +9,8 @@ import { PLACE_IDS } from "../engine/geo";
 import { FLUID_IDS, MATERIAL_IDS, SUBSTANCE_IDS } from "../engine/physics2";
 import { SHAPE_KINDS } from "../engine/geometry";
 import { CELL_KINDS, ORGANELLES } from "../engine/biology";
+import { ENV_PRESETS, LIGHTS } from "../environment";
+import { PeriodicTableFields } from "../periodic-table";
 
 export const SCHEMA_VERSION = 1;
 
@@ -42,7 +44,25 @@ export const ARG_PLACEHOLDERS = {
   distance_km: "two place or mark ids joined by ~, e.g. london~new_york",
 } as const;
 
+/**
+ * Every changeable field of each simulation module, for set_module. Patches
+ * are partial and strict: unknown fields are rejected so mistakes get repaired.
+ */
+export const MODULE_FIELDS = {
+  orbits: z.strictObject({ mode: z.enum(["solar_system", "earth_moon", "seasons"]), planets: z.array(z.enum(PLANET_IDS)).min(1).max(8), focus: z.enum([...PLANET_IDS, "sun", "moon"]).nullable(), daysPerSecond: num(0, 400), labels: z.boolean() }).partial(),
+  fluid: z.strictObject({ fluid: z.enum(FLUID_IDS) }).partial(),
+  circuit: z.strictObject({ layout: z.enum(["series", "parallel"]), voltage: num(0, 24), bulbs: z.number().int().min(1).max(4), resistanceOhms: num(1, 100), switchClosed: z.boolean(), brokenBulbs: z.array(z.number().int().min(1).max(4)).max(4) }).partial(),
+  wave: z.strictObject({ kind: z.enum(["transverse", "longitudinal"]), amplitude: num(0.05, 1.2), frequency: num(0.1, 4), wavelength: num(0.5, 6) }).partial(),
+  lever: z.strictObject({ leftMassKg: num(0.1, 50), leftDistanceM: num(0.1, 2.4), rightMassKg: num(0.1, 50), rightDistanceM: num(0.1, 2.4) }).partial(),
+  particles: z.strictObject({ substance: z.enum(SUBSTANCE_IDS), temperatureC: num(-273, 3500) }).partial(),
+  cell: z.strictObject({ kind: z.enum(CELL_KINDS), highlight: z.enum(Object.keys(ORGANELLES) as [string, ...string[]]).nullable() }).partial(),
+  globe: z.strictObject({ view: z.enum(["globe", "map"]), spin: z.boolean(), focus: z.enum(PLACE_IDS).nullable() }).partial(),
+} as const;
+export type ModuleName = keyof typeof MODULE_FIELDS;
+export const MODULE_NAMES = Object.keys(MODULE_FIELDS) as [ModuleName, ...ModuleName[]];
+
 export const Command = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("show_periodic_table"), ...PeriodicTableFields, focus: z.boolean().optional().describe("face the lab wall table; defaults true") }),
   z.object({ op: z.literal("load_world"), world: z.enum(WORLD_IDS) }),
   z.object({
     op: z.literal("spawn_asset"),
@@ -193,6 +213,28 @@ export const Command = z.discriminatedUnion("op", [
   }),
   z.object({ op: z.literal("set_fluid"), fluid: z.enum(FLUID_IDS) }),
   z.object({
+    op: z.literal("set_environment"),
+    preset: z.enum(ENV_PRESETS).optional().describe("replaces the whole look; other fields fine-tune it"),
+    sky: Color.nullable().optional().describe("background colour; null = normal daylight backdrop"),
+    ground: Color.nullable().optional().describe("outdoor ground colour around the play area"),
+    surface: Color.nullable().optional().describe("colour of painted play surfaces (court lanes); measuring lines stay"),
+    light: z.enum(LIGHTS).optional(),
+    fog: Color.nullable().optional(),
+    scenery: z.boolean().optional().describe("false hides trees, benches, lamps and signs"),
+    stars: z.boolean().optional(),
+    earth: z.boolean().optional().describe("show Earth hanging in the sky"),
+    craters: z.boolean().optional(),
+  }),
+  z.object({
+    op: z.literal("set_module"),
+    module: z.enum(MODULE_NAMES),
+    set: z
+      .record(z.string(), z.unknown())
+      .describe(
+        "only the fields to change. orbits: mode, planets, focus, daysPerSecond, labels. fluid: fluid. circuit: layout, voltage, bulbs, resistanceOhms, switchClosed, brokenBulbs (1-based bulb numbers that are blown; [] fixes them all). wave: kind, amplitude, frequency, wavelength. lever: leftMassKg, leftDistanceM, rightMassKg, rightDistanceM. particles: substance, temperatureC. cell: kind, highlight (part or null). globe: view, spin, focus (place id or null)",
+      ),
+  }),
+  z.object({
     op: z.literal("plot_function"),
     id: Id,
     expression: Text(100).describe("in x only, e.g. x^2 - 3, 2x + 1, sin(x), sqrt(x)"),
@@ -312,6 +354,8 @@ export const SceneSnapshot = z.object({
   selected: z.string().max(32).nullable().optional(),
   /** Active science modules and their parameters (small, engine-defined). */
   modules: z.record(z.string().max(20), z.unknown()).optional(),
+  /** Current restyle of the world, if any. */
+  environment: z.record(z.string().max(20), z.unknown()).optional(),
 });
 export type SceneSnapshot = z.infer<typeof SceneSnapshot>;
 

@@ -6,7 +6,8 @@ import { useEffect, useMemo, useRef } from "react";
 import { MathUtils, type Group } from "three";
 import { useShallow } from "zustand/react/shallow";
 import { useSim } from "@/lib/store";
-import { ASSETS, type Vec3 } from "@/lib/world/catalog";
+import { ASSETS, WORLDS, type Vec3 } from "@/lib/world/catalog";
+import { fishPose, isFish } from "@/lib/world/nature";
 import { bodies, liveBodies, livePosition, nodes } from "@/lib/world/runtime";
 import type { SceneObject } from "@/lib/world/scene";
 import { AssetModel, PrimitiveModel, rampHull } from "./assets";
@@ -69,6 +70,8 @@ const onOut = () => (document.body.style.cursor = "");
 
 function PhysObject({ o }: { o: SceneObject }) {
   const group = useRef<Group>(null);
+  const swimTime = useRef(0);
+  const swimPhase = useMemo(() => Array.from(o.id).reduce((n, c) => n + c.charCodeAt(0), 0) * .37, [o.id]);
   const animate = useMotion();
   const rot = useMemo(() => o.rotation.map((d) => d * DEG) as Vec3, [o.rotation]);
 
@@ -83,6 +86,15 @@ function PhysObject({ o }: { o: SceneObject }) {
   useFrame((_, dt) => {
     const g = group.current;
     if (!g || o.physics !== "none") return;
+    if (o.type === "asset" && isFish(o.asset) && animate) {
+      const s = useSim.getState();
+      if (!s.paused) swimTime.current += Math.min(dt, .05);
+      const pose = fishPose(o.position, swimTime.current, swimPhase, o.scale, WORLDS[s.world].bounds, s.world === "ocean");
+      g.position.set(...pose.position);
+      const turn = MathUtils.euclideanModulo(pose.yaw + rot[1] - g.rotation.y + Math.PI, Math.PI * 2) - Math.PI;
+      g.rotation.set(rot[0], MathUtils.damp(g.rotation.y, g.rotation.y + turn, 4, dt), rot[2]);
+      return;
+    }
     g.position.x = MathUtils.damp(g.position.x, o.position[0], 6, dt);
     g.position.y = MathUtils.damp(g.position.y, o.position[1], 6, dt);
     g.position.z = MathUtils.damp(g.position.z, o.position[2], 6, dt);

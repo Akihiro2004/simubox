@@ -16,14 +16,6 @@ export const VOICES = {
 } as const;
 export type VoiceRole = keyof typeof VOICES;
 
-const STYLE: Record<VoiceRole, string> = {
-  robot: "cheerfully, like a friendly little robot guide talking to kids",
-  kid: "with curious excitement, like a young student",
-  teacher: "warmly and clearly, like a kind teacher",
-  scientist: "clearly and enthusiastically, like a friendly scientist",
-  astronaut: "calmly and clearly, like an astronaut on a radio",
-  narrator: "in a friendly, clear storytelling voice for children",
-};
 
 let client: GoogleGenAI | null = null;
 const ai = () =>
@@ -56,14 +48,17 @@ function pcmToWav(pcm: Buffer, rate: number): Buffer {
 }
 
 export async function synthesize(text: string, role: VoiceRole, lang: "en" | "id"): Promise<Buffer> {
-  const key = `${role}|${lang}|${text}`;
+  // v2: lines are sent bare (v1 style-prompted audio could contain the instruction).
+  const key = `v2|${role}|${lang}|${text}`;
   const hit = cache.get(key);
   if (hit) {
     cache.delete(key);
     cache.set(key, hit);
     return hit;
   }
-  const prompt = `Say ${STYLE[role]}${lang === "id" ? ", in Indonesian" : ""}: ${text}`;
+  // Only the line itself: a style instruction ("Say cheerfully...") is
+  // sometimes read out loud by the TTS model. Each role's voice carries the character.
+  const prompt = text;
   let lastErr: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {

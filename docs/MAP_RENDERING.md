@@ -4,7 +4,7 @@ The map pass is confined to `src/components/world`, the world catalog/layout, an
 
 ## Scene contract
 
-`initialObjects(world)` now supplies furniture as ordinary named `SceneObject` assets. The catalog includes bed, desk, chair, bookcase, cabinet, bench, planter, reading lamp, garden fence, and display pedestal. The existing catalog-generated AI prompt and asset enum discover them automatically.
+`initialObjects(world)` supplies furniture as ordinary named `SceneObject` assets. The catalog includes bed, desk, chair, bookcase, cabinet, bench, planter, reading lamp, garden fence, display pedestal, bedside cabinet, stool, workbench, instrument trolley, and storage basket. The existing catalog-generated AI prompt and asset enum discover them automatically.
 
 These objects support the existing move, rotate, color, scale, visibility, selection, removal, focus, save, and world-loading paths. They start with static physics. The existing Reset action resets transforms of surviving objects and preserves removals; reloading a world restores its complete starting layout.
 
@@ -16,7 +16,19 @@ Room shells, cutaway wall finishes, windows, artwork, flooring, pond/path detail
 
 The maps use procedural geometry with no downloaded assets, fonts, or texture requests. Static oak planks, grass, and flower details use instancing. Existing quality/shadow controls and reduced-motion behavior remain active. Camera home framing leaves space for wall caps and refits when the viewport changes; orbiting and object focus still use the existing camera controller.
 
+The ten worlds share material and lighting conventions, with warmer interior fill and cooler observatory light. `surfaces.ts` caches deterministic wood, woven, and stone relief textures. `scenery.tsx` contains the added architectural details: pond edging and pavers, court borders and lamps, observatory calibration marks, tank framing and habitat details, graph-board trim, compass inlays, and wall-mounted workshop tools. These details keep the science modules' original coordinates.
+
+The workshop workbench is now a scene asset with compound colliders. Its pegboard belongs to the cutaway wall, so orbiting hides it with that wall. The bedroom bookcase has been moved left to clear the window curtains; extra shelf and bedside props are independent editable objects. Existing saved scenes preserve their saved objects; reload a world for its complete new default layout.
+
 ## Verification
+
+The court now includes editable covered stands and a ball rack, painted side lanes and distance labels, a launch circle, and a landscaped concourse. Near-side trees were removed from the launcher sight line. Court experiment coordinates remain unchanged.
+
+The park uses shared placement data in `park-layout.ts`, curved paths and an organic pond in `garden-park.tsx`, and individually editable shrubs, ferns, and a pergola. Old saved layouts retain their old objects; reloading the world supplies the redesigned garden.
+
+Ocean fish are normal scene assets with `physics: "none"`. `fishPose` computes a bounded visual patrol around their editable home position; the runtime node follows the fish, so focus, selection rings, and snapshots use its live position. Fish, tail motion, bubbles, and water surface motion respect Pause and reduced motion. Coral, kelp, anemones, and the stone arch use the existing asset commands. Buoyancy calculations are unchanged.
+
+The workshop lever and wave displays occupy the central demonstration area. The work mat moves and resizes for Circuit, Lever, and Wave rather than remaining behind an inactive experiment. Only their presentation coordinates changed.
 
 `tests/unit/furnishings.test.ts` covers unique/default IDs, placement bounds, lesson object headroom, model/collider extents, AI catalog discovery, scene-command validation after world loading, and independent default transforms.
 

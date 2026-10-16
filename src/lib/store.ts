@@ -7,6 +7,7 @@ import { initialObjects, objectKind, type Character, type SceneObject } from "./
 import { livePosition } from "./world/runtime";
 import { solveProjectile, type ProjectileResult } from "./engine/projectile";
 import { defaultModules, modulesSummary, type Modules } from "./modules";
+import type { Environment } from "./environment";
 import type { CapabilityId, ScenePlan, SceneSnapshot } from "./ssp/schema";
 
 export const EARTH_G: Vec3 = [0, -9.81, 0];
@@ -89,7 +90,7 @@ export interface CameraRequest {
   zoom?: "close" | "medium" | "wide";
   /** Explicit camera distance (overrides zoom), e.g. to frame a trajectory. */
   distance?: number;
-  preset?: "iso" | "top" | "front" | "side" | "home";
+  preset?: "iso" | "top" | "front" | "side" | "home" | "periodic_table";
 }
 
 export interface Settings {
@@ -119,6 +120,8 @@ interface SceneData {
   projectile: ProjectileState | null;
   /** Science modules active in this world (orbits, circuits, plots...). */
   modules: Modules;
+  /** Restyled look (sky, light, ground, scenery); null = the template as designed. */
+  environment: Environment | null;
   /** Info cards the lesson is showing. */
   cards: InfoCard[];
 }
@@ -203,6 +206,7 @@ export function freshScene(world: WorldId, nonce = 0): SceneData {
     metrics: [],
     projectile: world === "court" ? { speed: 10, angleDeg: 45, gravity: 9.81, height: 0, ball: "basketball", launchNonce: 0, status: "idle" } : null,
     modules: defaultModules(world),
+    environment: null,
     cards: [],
   };
 }
@@ -356,5 +360,6 @@ export function snapshot(s: SimState): SceneSnapshot {
     characters: Object.values(s.characters).map((c) => ({ id: c.id, kind: c.kind, name: c.name })),
     selected: s.selectedId,
     modules: modulesSummary(s.modules),
+    ...(s.environment ? { environment: { ...s.environment } } : {}),
   };
 }

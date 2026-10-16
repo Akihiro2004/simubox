@@ -5,8 +5,8 @@ import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
 import { MathUtils, Object3D, type Group, type InstancedMesh } from "three";
 import { useSim } from "@/lib/store";
-import { solveCircuit, solveLever, waveDisplacement, waveSpeed } from "@/lib/engine/physics2";
-import type { Modules } from "@/lib/modules";
+import { solveLever, waveDisplacement, waveSpeed } from "@/lib/engine/physics2";
+import { circuitResult, type Modules } from "@/lib/modules";
 import { Mat } from "../assets";
 
 const fmt = (v: number, d = 2) => (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(d));
@@ -37,21 +37,33 @@ const BOARD: [number, number, number] = [-1.2, 0.08, 1.1];
 const BOARD_SCALE = 1.6;
 const W = 1.0, H = 0.6; // half-extents of the wire loop on the board
 
-function Bulb({ at, brightness, label }: { at: V2; brightness: number; label?: string }) {
+function Bulb({ at, brightness, broken, label, onToggle }: { at: V2; brightness: number; broken: boolean; label?: string; onToggle: () => void }) {
   return (
-    <group position={[at[0], 0, at[1]]}>
+    <group
+      position={[at[0], 0, at[1]]}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      onPointerOver={() => (document.body.style.cursor = "pointer")}
+      onPointerOut={() => (document.body.style.cursor = "")}
+    >
       <mesh position={[0, 0.05, 0]} castShadow>
         <cylinderGeometry args={[0.06, 0.07, 0.1, 16]} />
         <Mat c="#9ca3af" m={0.6} r={0.3} />
       </mesh>
       <mesh position={[0, 0.17, 0]}>
         <sphereGeometry args={[0.1, 20, 16]} />
-        <meshStandardMaterial color="#fff7d6" emissive="#ffc531" emissiveIntensity={0.1 + brightness * 2.4} transparent opacity={0.92} />
+        {broken ? (
+          <meshStandardMaterial color="#5f6670" roughness={0.3} transparent opacity={0.55} />
+        ) : (
+          <meshStandardMaterial color="#fff7d6" emissive="#ffc531" emissiveIntensity={0.1 + brightness * 2.4} transparent opacity={0.92} />
+        )}
       </mesh>
       {brightness > 0.02 && <pointLight position={[0, 0.25, 0]} color="#ffcf6b" intensity={brightness * 1.6} distance={1.6} decay={2} />}
-      {label && (
+      {(label || broken) && (
         <Html position={[0, 0.42, 0]} center zIndexRange={[15, 0]} style={{ pointerEvents: "none" }}>
-          <Tag>{label}</Tag>
+          <Tag tone={broken ? "warning" : undefined}>{broken ? "Broken bulb" : label}</Tag>
         </Html>
       )}
     </group>
@@ -60,7 +72,7 @@ function Bulb({ at, brightness, label }: { at: V2; brightness: number; label?: s
 
 function Circuit({ c, animate }: { c: NonNullable<Modules["circuit"]>; animate: boolean }) {
   const set = useSim((s) => s.set);
-  const r = solveCircuit({ layout: c.layout, voltage: c.voltage, resistances: Array(c.bulbs).fill(c.resistance), closed: c.closed });
+  const r = circuitResult(c);
   const series = c.layout === "series";
   // Bulb spots: series along the top and right edges; parallel as rungs.
   // Series: bulbs sit on the loop. Parallel: each bulb is its own rung between the rails.
@@ -152,10 +164,25 @@ function Circuit({ c, animate }: { c: NonNullable<Modules["circuit"]>; animate: 
           <Tag tone={c.closed ? undefined : "warning"}>Switch {c.closed ? "closed" : "open"}</Tag>
         </Html>
       </group>
-      {/* Every bulb has the same resistance, so one label speaks for all of them. */}
-      {bulbs.map((b, i) => (
-        <Bulb key={i} at={b} brightness={r.branches[i]?.brightness ?? 0} label={i === bulbs.length - 1 ? `${bulbs.length > 1 ? "Each bulb: " : ""}${fmt(r.branches[i]?.current ?? 0)} A · ${fmt(r.branches[i]?.voltage ?? 0, 1)} V` : undefined} />
-      ))}
+      {/* Working bulbs share a resistance, so one label speaks for all of them. Click a bulb to break or fix it. */}
+      {bulbs.map((b, i) => {
+        const broken = c.broken.includes(i);
+        const lastWorking = bulbs.findLastIndex((_, j) => !c.broken.includes(j));
+        const br = r.branches[i];
+        return (
+          <Bulb
+            key={i}
+            at={b}
+            broken={broken}
+            brightness={br?.brightness ?? 0}
+            label={i === lastWorking ? `${bulbs.length - c.broken.length > 1 ? "Each bulb: " : ""}${fmt(br?.current ?? 0)} A · ${fmt(br?.voltage ?? 0, 1)} V` : undefined}
+            onToggle={() => {
+              const cur = useSim.getState().modules;
+              if (cur.circuit) set({ modules: { ...cur, circuit: { ...cur.circuit, broken: broken ? cur.circuit.broken.filter((j) => j !== i) : [...cur.circuit.broken, i] } } });
+            }}
+          />
+        );
+      })}
       <instancedMesh ref={dots} args={[undefined, undefined, PER * 4]} frustumCulled={false}>
         <sphereGeometry args={[0.022, 8, 6]} />
         <meshBasicMaterial color="#2f80ed" />
@@ -170,7 +197,7 @@ function Circuit({ c, animate }: { c: NonNullable<Modules["circuit"]>; animate: 
 // ---------- waves ----------
 
 const ROPE_N = 72;
-const ROPE: [number, number, number] = [0, 1.75, -2.4];
+const ROPE: [number, number, number] = [0, 1.75, 0.4];
 const HALF_LEN = 2.6;
 
 function Wave({ w, animate }: { w: NonNullable<Modules["wave"]>; animate: boolean }) {
@@ -224,7 +251,7 @@ function Wave({ w, animate }: { w: NonNullable<Modules["wave"]>; animate: boolea
 
 // ---------- lever ----------
 
-const LEVER: [number, number, number] = [0.7, 0, -0.6];
+const LEVER: [number, number, number] = [0, 0, 0.6];
 
 function Lever({ l, animate }: { l: NonNullable<Modules["lever"]>; animate: boolean }) {
   const beam = useRef<Group>(null);

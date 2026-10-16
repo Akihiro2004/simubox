@@ -8,7 +8,7 @@ function logResult(uid: string | null, result: DirectorResult) {
       event: "plan",
       user: uid ? "signed_in" : "guest",
       ok: result.ok,
-      ...(result.ok ? { model: result.model, ms: result.ms, repaired: result.repaired, dropped: result.issues.length, scope: result.plan.scope, capability: result.plan.capability } : { code: result.code }),
+      ...(result.ok ? { model: result.model, mode: result.mode, ms: result.ms, repaired: result.repaired, dropped: result.issues.length, scope: result.plan.scope, capability: result.plan.capability } : { code: result.code }),
     }),
   );
 }

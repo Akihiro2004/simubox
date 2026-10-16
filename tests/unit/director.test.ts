@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { EXAMPLES } from "@/lib/ai/examples";
+import { lessonMode } from "@/lib/ai/director";
 import { systemPrompt } from "@/lib/ai/prompt";
 import { commandReference } from "@/lib/ai/docs";
 import { Command } from "@/lib/ssp/schema";
@@ -89,5 +90,53 @@ describe("new module commands", () => {
     expect(r.issues.map((i) => i.op)).toEqual(["plot_function", "spawn_shape", "show_card"]);
     // Globe commands pull in a load_world for the globe.
     expect(r.plan.steps[0].commands.map((c) => c.op)).toContain("load_world");
+  });
+});
+
+describe("lessonMode", () => {
+  const h = [{ role: "user" as const, text: "series circuit" }];
+  it("keeps quick plans for scene tweaks and short follow-ups", () => {
+    expect(lessonMode({ prompt: "break one of the bulbs", history: [] })).toBe("quick");
+    expect(lessonMode({ prompt: "make gravity twice as strong", history: [] })).toBe("quick");
+    expect(lessonMode({ prompt: "what happens if one of the bulb broke?", history: h })).toBe("quick");
+  });
+  it("gives new questions a full lesson", () => {
+    expect(lessonMode({ prompt: "What happens if gravity disappears in my bedroom?", history: [] })).toBe("lesson");
+    expect(lessonMode({ prompt: "Why do we have seasons?", history: h })).toBe("lesson");
+    expect(lessonMode({ prompt: "How do plants make food?", history: [] })).toBe("lesson");
+  });
+});
+
+describe("set_environment", () => {
+  it("validates and turns a preset into a full look with overrides", async () => {
+    const { applyEnvironment } = await import("@/lib/environment");
+    const plan = {
+      schemaVersion: 1, scope: "in_scope", language: "en", title: "t", subject: "physics", supportLevel: "simulated", capability: "projectile", reply: "r",
+      steps: [{ title: "s", commands: [{ op: "set_environment", preset: "moon", stars: true }, { op: "set_environment", sky: "blue" }] }],
+      assumptions: [], limitations: [], followUps: [],
+    };
+    const r = validatePlan(plan, sceneFor("court"));
+    expect(r.ok && r.issues.map((i) => i.op)).toEqual(["set_environment"]);
+    const env = applyEnvironment(null, { preset: "moon", ground: "#888888" });
+    expect(env).toMatchObject({ preset: "moon", sky: "#04060c", ground: "#888888", scenery: false, earth: true });
+    expect("op" in applyEnvironment(env, { op: "set_environment", fog: "#000000" } as never)).toBe(false);
+  });
+});
+
+describe("environment follows gravity", () => {
+  const plan = (commands: unknown[]) => ({
+    schemaVersion: 1, scope: "in_scope", language: "en", title: "t", subject: "physics", supportLevel: "simulated", capability: "projectile", reply: "r",
+    steps: [{ title: "s", commands }], assumptions: [], limitations: [], followUps: [],
+  });
+  const ops = (r: ReturnType<typeof validatePlan>) => (r.ok ? r.plan.steps[0].commands.map((c) => (c.op === "set_environment" ? `env:${c.preset}` : c.op)) : []);
+  it("restyles to the Moon when the plan uses Moon gravity", () => {
+    expect(ops(validatePlan(plan([{ op: "load_world", world: "court" }, { op: "launch_projectile", speed: 10, unit: "m/s", angleDeg: 45, gravity: 1.62 }]), sceneFor("court")))).toEqual(["load_world", "env:moon", "launch_projectile"]);
+  });
+  it("leaves plans alone that restyle themselves or stay on Earth", () => {
+    expect(ops(validatePlan(plan([{ op: "set_environment", preset: "mars" }, { op: "set_gravity", gravity: [0, -1.62, 0] }]), sceneFor("court")))).toEqual(["env:mars", "set_gravity"]);
+    expect(ops(validatePlan(plan([{ op: "set_gravity", gravity: [0, -9.81, 0] }]), sceneFor("court")))).toEqual(["set_gravity"]);
+  });
+  it("goes back to Earth after a Moon restyle", () => {
+    expect(ops(validatePlan(plan([{ op: "set_gravity", gravity: [0, -9.81, 0] }]), { ...sceneFor("court"), environment: { preset: "moon" } }))).toEqual(["env:earth", "set_gravity"]);
   });
 });

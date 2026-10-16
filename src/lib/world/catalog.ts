@@ -2,6 +2,7 @@
 // server (to tell Gemini what exists) and by the client (to render it).
 
 import { FURNITURE } from "./furnishings";
+import { NATURE_ASSETS } from "./nature";
 
 export type Vec3 = [number, number, number];
 
@@ -125,6 +126,7 @@ export interface AssetDef {
 const A = (a: AssetDef) => a;
 export const ASSETS = {
   ...FURNITURE,
+  ...NATURE_ASSETS,
   ball_red: A({ id: "ball_red", name: "Red ball", size: [0.3, 0.3, 0.3], collider: "ball", massKg: 0.4, defaultPhysics: "dynamic", color: "#ef4444", tags: ["ball", "toy"], bounciness: 0.7 }),
   ball_blue: A({ id: "ball_blue", name: "Blue ball", size: [0.3, 0.3, 0.3], collider: "ball", massKg: 0.4, defaultPhysics: "dynamic", color: "#3b82f6", tags: ["ball", "toy"], bounciness: 0.7 }),
   basketball: A({ id: "basketball", name: "Basketball", size: [0.24, 0.24, 0.24], collider: "ball", massKg: 0.62, defaultPhysics: "dynamic", color: "#f97316", tags: ["ball", "sport"], bounciness: 0.75 }),

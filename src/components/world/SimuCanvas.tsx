@@ -16,6 +16,7 @@ import { SceneObjects } from "./objects";
 import { Overlays } from "./overlays";
 import { ProjectileStage } from "./projectile";
 import { WorldDecor } from "./worlds";
+import { EnvironmentLayer, MOOD } from "./environment";
 import { Buoyancy, Water } from "./modules/fluid";
 import { SpaceModule } from "./modules/space";
 import { GlobeModule } from "./modules/globe";
@@ -54,17 +55,21 @@ function CharacterById({ id, animate }: { id: string; animate: boolean }) {
 
 function Lights({ shadows, mapSize }: { shadows: boolean; mapSize: number }) {
   const world = useSim((s) => s.world);
+  const light = useSim((s) => s.environment?.light ?? "day");
   const court = world === "court";
+  const space = world === "space";
+  const indoor = world === "bedroom" || world === "lab" || world === "workshop";
   const t = WORLDS[world].camera.target;
+  const mood = light === "day" ? null : MOOD[light];
   return (
     <>
-      {/* soft studio daylight: bright sky fill, one warm key light */}
-      <hemisphereLight args={["#ffffff", "#cdd4dd", court ? 1.25 : 1.0]} />
-      <ambientLight intensity={0.3} color="#ffffff" />
+      {/* soft studio daylight: bright sky fill, one warm key light (or the restyled mood) */}
+      <hemisphereLight args={mood ? [mood.sky, mood.ground, mood.hemi] : [space ? "#a6bce5" : "#f6f8ff", indoor ? "#b9a78b" : "#a4b5b1", space ? .55 : .85]} />
+      <ambientLight intensity={mood ? mood.ambient : space ? .12 : .2} color="#ffffff" />
       <directionalLight
         position={[t[0] + 7, 13, t[2] + 6]}
-        intensity={court ? 2.4 : 2.6}
-        color="#fff0d8"
+        intensity={mood ? mood.sunI : space ? 1.5 : court ? 2.6 : 3.1}
+        color={mood ? mood.sun : space ? "#c2d6ff" : "#fff0d8"}
         castShadow={shadows}
         shadow-mapSize={[mapSize, mapSize]}
         shadow-camera-left={court ? -30 : -9}
@@ -77,17 +82,18 @@ function Lights({ shadows, mapSize }: { shadows: boolean; mapSize: number }) {
       >
         <object3D attach="target" position={t} />
       </directionalLight>
-      <directionalLight position={[-8, 5, -3]} intensity={0.5} color="#e3ecff" />
+      <directionalLight position={[-8, 5, -3]} intensity={mood ? mood.fill : space ? .75 : .55} color="#d5e5ed" />
     </>
   );
 }
 
 function World({ animate }: { animate: boolean }) {
-  const { world, worldNonce, gravity, paused } = useSim(useShallow((s) => ({ world: s.world, worldNonce: s.worldNonce, gravity: s.gravity, paused: s.paused })));
+  const { world, worldNonce, gravity, paused, restyled } = useSim(useShallow((s) => ({ world: s.world, worldNonce: s.worldNonce, gravity: s.gravity, paused: s.paused, restyled: s.environment !== null })));
   return (
     <>
-      {/* the court's ground fades into the studio backdrop */}
-      {world === "court" && <fog attach="fog" args={["#e4e9ef", 60, 380]} />}
+      {/* the court's ground fades into the studio backdrop (a restyle brings its own sky and haze) */}
+      {world === "court" && !restyled && <fog attach="fog" args={["#e4e9ef", 60, 380]} />}
+      <EnvironmentLayer />
       <Physics key={worldNonce} gravity={gravity} paused={paused} timeStep={1 / 60} interpolate>
         <WorldDecor world={world} animate={animate} />
         <SceneObjects animate={animate} />
@@ -117,7 +123,7 @@ export default function SimuCanvas() {
     <>
       <Canvas
         className="simu-canvas"
-        shadows={shadows ? "soft" : false}
+        shadows={shadows}
         dpr={dpr}
         gl={{ antialias: quality !== "low", alpha: true, powerPreference: "high-performance" }}
         camera={{ position: WORLDS.bedroom.camera.position, fov: 32, near: 0.1, far: 3000 }}

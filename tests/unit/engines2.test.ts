@@ -101,6 +101,18 @@ describe("circuits (Ohm's law)", () => {
     expect(s3).toBeLessThan(s1);
     near(p3, s1);
   });
+  it("a blown bulb opens a series loop but only its own parallel branch", () => {
+    const s = solveCircuit({ layout: "series", voltage: 6, resistances: [10, 10], closed: true, broken: [false, true] });
+    expect(s.current).toBe(0);
+    expect(s.totalResistance).toBe(Infinity);
+    expect(s.branches[0].brightness).toBe(0);
+    near(s.branches[1].voltage, 6); // the full battery voltage sits across the gap
+    const p = solveCircuit({ layout: "parallel", voltage: 6, resistances: [10, 10], closed: true, broken: [false, true] });
+    near(p.current, 0.6);
+    near(p.totalResistance, 10);
+    near(p.branches[0].brightness, 1);
+    expect(p.branches[1].current).toBe(0);
+  });
   it("open switch means no current", () => {
     expect(solveCircuit({ layout: "series", voltage: 9, resistances: [5], closed: false }).current).toBe(0);
     expect(() => solveCircuit({ layout: "series", voltage: 9, resistances: [0], closed: true })).toThrow();

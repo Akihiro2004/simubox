@@ -7,6 +7,7 @@ import { PLACES, distanceKm } from "./engine/geo";
 import { FLUIDS, MATERIALS, floatFraction, phaseAt, rmsSpeed, solveCircuit, solveLever, wavePeriod, waveSpeed, type FluidId, type MaterialId, type SubstanceId } from "./engine/physics2";
 import { measureShape } from "./engine/geometry";
 import type { CellKind } from "./engine/biology";
+import { EMPTY_TABLE, type PeriodicTableState } from "./periodic-table";
 import type { SceneObject } from "./world/scene";
 import { ASSETS, type WorldId } from "./world/catalog";
 
@@ -41,10 +42,11 @@ export interface Mark {
 }
 
 export interface Modules {
+  periodicTable: PeriodicTableState | null;
   orbits: { mode: "solar_system" | "earth_moon" | "seasons"; planets: PlanetId[]; focus: PlanetId | "sun" | "moon" | null; daysPerSecond: number; labels: boolean } | null;
   fluid: FluidId | null;
   plot: { functions: PlotFn[]; points: PlotPoint[]; vectors: PlotVec[] } | null;
-  circuit: { layout: "series" | "parallel"; voltage: number; bulbs: number; resistance: number; closed: boolean } | null;
+  circuit: { layout: "series" | "parallel"; voltage: number; bulbs: number; resistance: number; closed: boolean; /** blown bulbs, 0-based */ broken: number[] } | null;
   wave: { kind: "transverse" | "longitudinal"; amplitude: number; frequency: number; wavelength: number } | null;
   lever: { leftMass: number; leftDistance: number; rightMass: number; rightDistance: number } | null;
   particles: { substance: SubstanceId; temperatureC: number } | null;
@@ -54,18 +56,38 @@ export interface Modules {
 
 export const ALL_PLANETS = Object.keys(PLANETS) as PlanetId[];
 
+/** Starting state for each module when something switches it on. */
+export const MODULE_DEFAULTS: { [K in keyof Modules]-?: NonNullable<Modules[K]> } = {
+  periodicTable: EMPTY_TABLE,
+  orbits: { mode: "solar_system", planets: ALL_PLANETS, focus: null, daysPerSecond: 20, labels: true },
+  fluid: "fresh_water",
+  plot: { functions: [], points: [], vectors: [] },
+  circuit: { layout: "series", voltage: 6, bulbs: 2, resistance: 10, closed: true, broken: [] },
+  wave: { kind: "transverse", amplitude: 0.5, frequency: 1, wavelength: 2 },
+  lever: { leftMass: 4, leftDistance: 1, rightMass: 2, rightDistance: 1.5 },
+  particles: { substance: "water", temperatureC: 20 },
+  cell: { kind: "animal", highlight: null },
+  globe: { view: "globe", spin: true, focus: null, marks: [], routes: [] },
+};
+
 export function defaultModules(world: WorldId): Modules {
   return {
-    orbits: world === "space" ? { mode: "solar_system", planets: ALL_PLANETS, focus: null, daysPerSecond: 20, labels: true } : null,
-    fluid: world === "ocean" ? "fresh_water" : null,
-    plot: world === "math" ? { functions: [], points: [], vectors: [] } : null,
-    circuit: world === "workshop" ? { layout: "series", voltage: 6, bulbs: 2, resistance: 10, closed: true } : null,
+    periodicTable: world === "lab" ? EMPTY_TABLE : null,
+    orbits: world === "space" ? MODULE_DEFAULTS.orbits : null,
+    fluid: world === "ocean" ? MODULE_DEFAULTS.fluid : null,
+    plot: world === "math" ? MODULE_DEFAULTS.plot : null,
+    circuit: world === "workshop" ? MODULE_DEFAULTS.circuit : null,
     wave: null,
     lever: null,
     particles: null,
     cell: null,
-    globe: world === "globe" ? { view: "globe", spin: true, focus: null, marks: [], routes: [] } : null,
+    globe: world === "globe" ? MODULE_DEFAULTS.globe : null,
   };
+}
+
+/** Ohm's-law result for the circuit module's state. */
+export function circuitResult(c: NonNullable<Modules["circuit"]>) {
+  return solveCircuit({ layout: c.layout, voltage: c.voltage, resistances: Array(c.bulbs).fill(c.resistance), closed: c.closed, broken: Array.from({ length: c.bulbs }, (_, i) => c.broken.includes(i)) });
 }
 
 /** Simulation clock for the orbit module (days since start); advanced by the renderer. */
@@ -99,9 +121,9 @@ export function moduleValue(name: string, arg: string | undefined, m: Modules, o
     case "voltage": {
       const c = m.circuit;
       if (!c) return undefined;
-      const r = solveCircuit({ layout: c.layout, voltage: c.voltage, resistances: Array(c.bulbs).fill(c.resistance), closed: c.closed });
+      const r = circuitResult(c);
       if (name === "current") return `${f(r.current)} A`;
-      if (name === "total_resistance") return `${f(r.totalResistance, 1)} Ω`;
+      if (name === "total_resistance") return Number.isFinite(r.totalResistance) ? `${f(r.totalResistance, 1)} Ω` : "infinite (the path is broken)";
       if (name === "power") return `${f(r.totalPower)} W`;
       return `${f(c.voltage, 1)} V`;
     }

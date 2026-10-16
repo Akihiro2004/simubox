@@ -60,7 +60,7 @@ export function geminiSchema(schema: z.ZodType): unknown {
 export type DirectorEvent = { type: "status"; text: string } | { type: "thought"; title: string; text: string } | { type: "step"; title: string };
 
 export type DirectorResult =
-  | { ok: true; plan: ScenePlan; issues: PlanIssue[]; model: string; repaired: boolean; ms: number }
+  | { ok: true; plan: ScenePlan; issues: PlanIssue[]; model: string; repaired: boolean; ms: number; mode?: "quick" | "lesson" }
   | { ok: false; status: number; error: string; code: "ai_unconfigured" | "ai_failed" | "ai_timeout" };
 
 const TRANSIENT = /\b(429|500|502|503|504)\b|UNAVAILABLE|RESOURCE_EXHAUSTED|DEADLINE|fetch failed|ECONNRESET|UND_ERR/i;
@@ -70,7 +70,23 @@ function thoughtTitle(text: string): string {
   return (/\*\*(.+?)\*\*/.exec(text)?.[1] ?? text.split("\n")[0]).trim().slice(0, 80);
 }
 
-async function generate(contents: string, signal: AbortSignal, emit: (e: DirectorEvent) => void): Promise<string> {
+const EDIT_VERB = /^(please\s+)?(make|turn|set|change|break|fix|remove|delete|add|drop|push|throw|launch|double|halve|triple|increase|decrease|raise|lower|open|close|switch|zoom|focus|spin|stop|start|pause|put|move|heat|cool|warm|freeze|melt|plot|draw|graph|mark|try|swap|replace|use|give|let|now)\b/i;
+const ABOUT_SCENE = /^(what|why|how|and|so|then|but)\b.{0,40}\b(if|it|this|that|these|those|the (one|other|bulb|ball|switch|lever|wave|cube|planet|cell|block))\b/i;
+
+/**
+ * How hard to think. Tweaks to the current scene and short follow-ups get a
+ * quick plan with low thinking; new questions get a full lesson. ponytail:
+ * keyword heuristic, a classifier call would add a round trip to every prompt.
+ */
+export function lessonMode(req: Pick<PlanRequest, "prompt" | "history">): "quick" | "lesson" {
+  const p = req.prompt.trim();
+  const words = p.split(/\s+/).length;
+  if (words > 18) return "lesson";
+  if (EDIT_VERB.test(p) && words <= 14) return "quick";
+  return req.history.length > 0 && ABOUT_SCENE.test(p) ? "quick" : "lesson";
+}
+
+async function generate(contents: string, signal: AbortSignal, emit: (e: DirectorEvent) => void, quick: boolean): Promise<string> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -80,8 +96,8 @@ async function generate(contents: string, signal: AbortSignal, emit: (e: Directo
         config: {
           systemInstruction: systemPrompt(),
           responseMimeType: "application/json",
-          thinkingConfig: { thinkingLevel: ThinkingLevel.MEDIUM, includeThoughts: true },
-          maxOutputTokens: 12000,
+          thinkingConfig: { thinkingLevel: quick ? ThinkingLevel.LOW : ThinkingLevel.MEDIUM, includeThoughts: true },
+          maxOutputTokens: quick ? 6000 : 12000,
           abortSignal: signal,
         },
       });
@@ -135,10 +151,11 @@ export async function direct(req: PlanRequest, emit: (e: DirectorEvent) => void 
 
   const lang = req.language === "auto" ? (looksIndonesian(req.prompt) ? "id" : "en") : req.language;
   const signal = AbortSignal.timeout(Number(process.env.AI_TIMEOUT_MS) || 70_000);
-  const base = userPrompt(req, matchCapabilities(req.prompt));
+  const mode = lessonMode(req);
+  const base = userPrompt(req, matchCapabilities(req.prompt), mode);
   try {
-    emit({ type: "status", text: "Reading your question" });
-    let result = validatePlan(normalizePlan(safeJson(await generate(base, signal, emit)), lang), req.scene);
+    emit({ type: "status", text: mode === "quick" ? "Changing the scene" : "Reading your question" });
+    let result = validatePlan(normalizePlan(safeJson(await generate(base, signal, emit, mode === "quick")), lang), req.scene);
     let repaired = false;
     // One repair round if anything was rejected, with the exact problems.
     if (!result.ok || result.issues.length) {
@@ -147,7 +164,8 @@ export async function direct(req: PlanRequest, emit: (e: DirectorEvent) => void 
       const prev = result.ok ? JSON.stringify(result.plan).slice(0, 12000) : "";
       const retry = `${base}\n\nYour previous ScenePlan had problems:\n${issueReport(result)}\n${prev ? `Previous plan (fix it, keep what worked):\n${prev}\n` : ""}Return the complete corrected ScenePlan JSON using only the documented command shapes.`;
       try {
-        const second = validatePlan(normalizePlan(safeJson(await generate(retry, signal, emit)), lang), req.scene);
+        // Fixing named problems is mechanical: think briefly.
+        const second = validatePlan(normalizePlan(safeJson(await generate(retry, signal, emit, true)), lang), req.scene);
         result = better(result, second);
       } catch (e) {
         if (!result.ok) throw e;
@@ -158,7 +176,7 @@ export async function direct(req: PlanRequest, emit: (e: DirectorEvent) => void 
       return { ok: true, plan: safePlan(msg, lang, "needs_clarification"), issues: [], model: MODEL, repaired, ms: Date.now() - started };
     }
     emit({ type: "status", text: "Starting the lesson" });
-    return { ok: true, plan: result.plan, issues: result.issues, model: MODEL, repaired, ms: Date.now() - started };
+    return { ok: true, plan: result.plan, issues: result.issues, model: MODEL, repaired, ms: Date.now() - started, mode };
   } catch (e) {
     const timeout = signal.aborted;
     console.error(JSON.stringify({ event: "ai_error", model: MODEL, timeout, message: String(e).slice(0, 300) }));

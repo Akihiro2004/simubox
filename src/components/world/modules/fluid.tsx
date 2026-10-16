@@ -13,6 +13,7 @@ import { liveBodies } from "@/lib/world/runtime";
 import { ASSETS } from "@/lib/world/catalog";
 import { FLUIDS, sphereSubmerged } from "@/lib/engine/physics2";
 import type { SceneObject } from "@/lib/world/scene";
+import { useMotion } from "@/lib/useMotion";
 
 export const WATER_Y = 2.6;
 export const TANK_HALF = 3.75;
@@ -73,19 +74,23 @@ export function Buoyancy() {
 export function Water() {
   const fluid = useSim((s) => s.modules.fluid ?? "fresh_water");
   const surface = useRef<Mesh>(null);
-  useFrame(({ clock }) => {
-    if (surface.current) surface.current.position.y = WATER_Y + Math.sin(clock.elapsedTime * 1.2) * 0.01;
+  const time = useRef(0);
+  const animate = useMotion();
+  useFrame((_, dt) => {
+    if (animate && !useSim.getState().paused) time.current += Math.min(dt, .05);
+    if (surface.current) surface.current.position.y = WATER_Y + Math.sin(time.current * 1.2) * 0.01;
   });
   const color = FLUIDS[fluid].color;
+  const clear = fluid === "fresh_water" || fluid === "sea_water";
   return (
     <group>
       <mesh position={[0, WATER_Y / 2, 0]} renderOrder={2}>
         <boxGeometry args={[TANK_HALF * 2, WATER_Y, TANK_HALF * 2]} />
-        <meshStandardMaterial color={color} transparent opacity={0.32} roughness={0.1} depthWrite={false} />
+        <meshStandardMaterial color={color} transparent opacity={clear ? .12 : .32} roughness={0.1} depthWrite={false} />
       </mesh>
       <mesh ref={surface} position={[0, WATER_Y, 0]} rotation={[-Math.PI / 2, 0, 0]} renderOrder={3}>
         <planeGeometry args={[TANK_HALF * 2, TANK_HALF * 2]} />
-        <meshStandardMaterial color={color} transparent opacity={0.45} roughness={0.05} metalness={0.1} depthWrite={false} />
+        <meshStandardMaterial color={color} transparent opacity={clear ? .18 : .45} roughness={0.05} metalness={0.1} depthWrite={false} />
       </mesh>
     </group>
   );

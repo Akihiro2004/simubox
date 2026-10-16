@@ -65,6 +65,61 @@ export const FURNITURE_PARTS = {
     part([.78, .64, .78], [0, 0, 0], cream, .06, true),
     part([.96, .08, .96], [0, .36, 0], "#b2d4c9", .04),
   ],
+  nightstand: [
+    part([.64, .48, .58], [0, -.04, 0], wood, .035),
+    part([.69, .06, .63], [0, .23, 0], wood),
+    part([.54, .19, .025], [0, .04, .3], cream, .015, true),
+    part([.12, .025, .035], [0, .04, .33], "#b99b62", .008),
+    ...[-.24, .24].flatMap(x => [-.2, .2].map(z => part([.055, .08, .055], [x, -.29, z], dark))),
+  ],
+  stool: [
+    part([.46, .09, .46], [0, .255, 0], "#bf9360", .045, true),
+    ...[-.16, .16].flatMap(x => [-.16, .16].map(z => part([.04, .51, .04], [x, -.045, z], dark))),
+    part([.36, .035, .035], [0, -.13, -.16], dark),
+    part([.36, .035, .035], [0, -.13, .16], dark),
+  ],
+  workbench: [
+    part([4.8, .08, .95], [0, .45, 0], wood),
+    ...[-1.75, 1.75].map(x => part([1.05, .86, .78], [x, -.02, 0], "#687e7d", .025, true)),
+    ...[-1.75, 1.75].flatMap(x => [-.22, .06, .3].map(y => part([.91, .025, .045], [x, y, .41], "#d1b684", .008))),
+    part([2.4, .08, .72], [0, -.33, 0], dark),
+  ],
+  instrument_cart: [
+    ...[-.28, .22].map(y => part([.8, .055, .6], [0, y, 0], "#dce5df", .02, true)),
+    ...[-.35, .35].flatMap(x => [-.25, .25].map(z => part([.035, .75, .035], [x, .025, z], dark, .008))),
+    ...[-.32, .32].flatMap(x => [-.22, .22].map(z => part([.12, .14, .08], [x, -.37, z], dark, .025))),
+  ],
+  storage_box: [
+    part([.58, .36, .42], [0, -.025, 0], "#bd9c73", .035, true),
+    part([.61, .06, .45], [0, .185, 0], cream, .018),
+    part([.16, .045, .015], [0, .04, .218], dark, .008),
+    ...[-.15, .15].map(x => part([.035, .36, .015], [x, -.025, .215], "#d5b98f", .004)),
+  ],
+  covered_stand: [
+    ...[0, 1, 2].flatMap(row => [
+      part([5.2, .35 + row * .35, .58], [0, -1.325 + row * .175, .64 - row * .62], "#b9c1b4", .025),
+      part([5.35, .075, .5], [0, -1.11 + row * .35, .64 - row * .62], "#bc8b5f", .025, true),
+    ]),
+    ...[-2.5, 2.5].flatMap(x => [-.9, .9].map(z => part([.075, 2.85, .075], [x, -.075, z], dark, .012))),
+    part([5.6, .1, 2.25], [0, 1.4, 0], "#e8dfc6", .025),
+    part([5.65, .23, .09], [0, 1.33, 1.1], "#547d7b", .015),
+    part([5.65, .23, .09], [0, 1.33, -1.1], "#547d7b", .015),
+  ],
+  ball_rack: [
+    ...[-.8, .8].flatMap(x => [-.25, .25].map(z => part([.04, 1.04, .04], [x, 0, z], dark, .008))),
+    ...[-.32, .16].flatMap(y => [-.25, .25].map(z => part([1.64, .035, .035], [0, y, z], "#9caeaa", .008))),
+    ...[-.8, .8].flatMap(x => [-.25, .25].map(z => part([.1, .12, .08], [x, -.54, z], dark, .025))),
+  ],
+  garden_arbor: [
+    ...[-1.3, 1.3].flatMap(x => [-.5, .5].map(z => part([.1, 2.7, .1], [x, -.05, z], "#9b8059", .012))),
+    ...[-.5, .5].map(z => part([2.9, .14, .14], [0, 1.27, z], "#9b8059", .015)),
+    ...Array.from({ length: 9 }, (_, i) => part([.07, .09, 1.3], [-1.36 + i * .34, 1.35, 0], "#c7b48b", .012, true)),
+    ...[-1.3, 1.3].flatMap(x => [-.7, -.35, 0, .35, .7].map(y => part([.04, .04, 1], [x, y, 0], "#b29a70", .008))),
+  ],
+  reef_arch: [
+    ...[-.52, .52].map(x => part([.32, .9, .5], [x, -.15, 0], "#a5aaa0", .07, true)),
+    part([1.4, .3, .55], [0, .45, 0], "#b5b9aa", .08, true),
+  ],
 } satisfies Record<string, FurniturePart[]>;
 export type FurnitureId = keyof typeof FURNITURE_PARTS;
 const def = (id: FurnitureId, name: string, size: Vec3, massKg: number, color: string): AssetDef => ({ id, name, size, massKg, color, collider: "cuboid", defaultPhysics: "static", tags: ["furniture", "decor"], bounciness: .05 });
@@ -79,5 +134,14 @@ export const FURNITURE = {
   desk_lamp: def("desk_lamp", "Reading lamp", [.26, .5, .24], 1, dark),
   garden_fence: def("garden_fence", "Garden fence", [2.6, .9, .15], 12, cream),
   pedestal: def("pedestal", "Display pedestal", [1.05, .8, 1.05], 25, cream),
+  nightstand: def("nightstand", "Oak bedside cabinet", [.69, .66, .7], 9, cream),
+  stool: def("stool", "Workshop stool", [.46, .6, .46], 4, "#bf9360"),
+  workbench: def("workbench", "Maker workbench", [4.8, .98, .95], 60, "#687e7d"),
+  instrument_cart: def("instrument_cart", "Instrument trolley", [.8, .88, .6], 12, "#dce5df"),
+  storage_box: def("storage_box", "Lidded storage basket", [.61, .43, .46], 2, "#bd9c73"),
+  covered_stand: def("covered_stand", "Covered spectator stand", [5.65, 3, 2.3], 180, "#bc8b5f"),
+  ball_rack: def("ball_rack", "Sports ball rack", [1.75, 1.2, .6], 8, "#9caeaa"),
+  garden_arbor: def("garden_arbor", "Garden pergola", [2.9, 2.8, 1.3], 45, "#c7b48b"),
+  reef_arch: def("reef_arch", "Aquarium stone arch", [1.4, 1.2, .55], 25, "#a5aaa0"),
 };
 export function isFurniture(id: string): id is FurnitureId { return Object.hasOwn(FURNITURE_PARTS, id); }

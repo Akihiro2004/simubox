@@ -6,6 +6,7 @@ import { useThree } from "@react-three/fiber";
 import { Box3, Vector3 } from "three";
 import { useSim } from "@/lib/store";
 import { WORLDS } from "@/lib/world/catalog";
+import { periodicTableCamera } from "@/lib/periodic-table";
 
 /** Shared handle so drag code can pause orbiting while an object is held. */
 export const controlsRef: { current: CameraControlsImpl | null } = { current: null };
@@ -40,6 +41,11 @@ export function CameraRig({ animate }: { animate: boolean }) {
     const t = c.getTarget(new Vector3());
     const p = c.getPosition(new Vector3());
     const smooth = animate;
+    if (cam.preset === "periodic_table" && world === "lab") {
+      const { position: p, target: t } = periodicTableCamera(size.width / Math.max(1, size.height));
+      void c.setLookAt(...p, ...t, smooth);
+      return;
+    }
     if (cam.target) {
       const target = new Vector3(...cam.target);
       const dir = p.sub(t).normalize();
@@ -63,7 +69,8 @@ export function CameraRig({ animate }: { animate: boolean }) {
         const aspect = size.width / Math.max(1, size.height);
         // Leave room for tall cutaway walls and the composer. The old desktop
         // framing clipped the wall caps; resize must also refit the diorama.
-        const k = Math.max(1.3, 1.3 / Math.max(.25, aspect));
+        const padding = world === "lab" ? 1.65 : world === "math" ? 1.6 : world === "space" || world === "globe" ? 1.55 : 1.3;
+        const k = Math.max(padding, padding / Math.max(.25, aspect));
         const [px, py, pz] = w.camera.position, [tx, ty, tz] = w.camera.target;
         void c.setLookAt(tx + (px - tx) * k, ty + (py - ty) * k, tz + (pz - tz) * k, tx, ty, tz, smooth);
       }

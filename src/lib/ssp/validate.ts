@@ -5,7 +5,7 @@
 import { GUIDE_ID, LIMITS, type WorldId } from "../world/catalog";
 import { initialObjects } from "../world/scene";
 import { PROJECTILE_LIMITS, toMetersPerSecond } from "../engine/projectile";
-import { ARG_PLACEHOLDERS, Command, LoosePlan, PLACEHOLDERS, ScenePlan, type PlanIssue, type SceneSnapshot } from "./schema";
+import { ARG_PLACEHOLDERS, Command, LoosePlan, MODULE_FIELDS, PLACEHOLDERS, ScenePlan, type ModuleName, type PlanIssue, type SceneSnapshot } from "./schema";
 import { PLANET_IDS } from "../engine/astro";
 import { PLACE_IDS } from "../engine/geo";
 import { isValidExpression } from "../engine/expr";
@@ -18,6 +18,7 @@ const PLACEHOLDER_RE = /\{\{\s*([a-z_]+)(?::([a-z0-9_~]+))?\s*\}\}/g;
 
 /** Which world each science module lives in; using one elsewhere loads it first. */
 const MODULE_WORLD: Partial<Record<Command["op"], WorldId>> = {
+  show_periodic_table: "lab",
   launch_projectile: "court",
   show_orbits: "space",
   set_fluid: "ocean",
@@ -32,7 +33,40 @@ const MODULE_WORLD: Partial<Record<Command["op"], WorldId>> = {
   connect_places: "globe",
 };
 
-export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | "objects" | "characters">): ValidationResult {
+/** Home world of each module that set_module can change. */
+const MODULE_HOME: Record<ModuleName, WorldId> = { orbits: "space", fluid: "ocean", circuit: "workshop", wave: "workshop", lever: "workshop", particles: "lab", cell: "lab", globe: "globe" };
+
+/** Gravity a command sets (m/s², positive), if any. */
+function gravityOf(c: Command): number | undefined {
+  if (c.op === "set_gravity") return Math.hypot(...c.gravity);
+  if (c.op === "launch_projectile") return c.gravity;
+  if (c.op === "set_parameter" && c.name === "gravity") return c.value;
+  return undefined;
+}
+const GRAVITY_PLACES = [
+  { preset: "moon", g: 1.62 },
+  { preset: "mars", g: 3.71 },
+  { preset: "earth", g: 9.81 },
+] as const;
+
+/**
+ * A lesson set on the Moon or Mars must not look like an Earth park. If the plan
+ * uses that gravity but never restyles the world, add the matching look at the
+ * start (and switch back to Earth when Earth gravity returns after a restyle).
+ */
+function matchEnvironment(steps: { title: string; commands: Command[] }[], current: string | undefined): void {
+  const all = steps.flatMap((s) => s.commands);
+  if (!steps.length || all.some((c) => c.op === "set_environment")) return;
+  const gs = all.map(gravityOf).filter((g): g is number => g !== undefined);
+  if (!gs.length) return;
+  const place = GRAVITY_PLACES.find((p) => Math.abs(p.g - gs[0]) < 0.12)?.preset;
+  if (!place || (place === "earth" && (!current || current === "earth"))) return;
+  const first = steps[0].commands;
+  const at = first.findIndex((c) => c.op !== "load_world");
+  first.splice(at < 0 ? first.length : at, 0, { op: "set_environment", preset: place });
+}
+
+export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | "objects" | "characters"> & { environment?: Record<string, unknown> }): ValidationResult {
   const env = LoosePlan.safeParse(raw);
   if (!env.success) {
     return { ok: false, error: env.error.issues.slice(0, 6).map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") };
@@ -80,7 +114,7 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
       const c = parsed.data;
 
       // Science modules need their world; load it first if the plan didn't.
-      const home = MODULE_WORLD[c.op];
+      const home = c.op === "set_module" ? MODULE_HOME[c.module] : MODULE_WORLD[c.op];
       if (home && world !== home) {
         commands.push({ op: "load_world", world: home });
         world = home;
@@ -104,6 +138,13 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
         case "morph_shape":
           if (!objects.has(c.id)) return drop(`unknown object "${c.id}"`);
           break;
+        case "set_module": {
+          const patch = MODULE_FIELDS[c.module].safeParse(c.set);
+          if (!patch.success) return drop(`set ${c.module}: ${patch.error.issues.map((i) => `${i.path.join(".") || "set"}: ${i.message}`).join("; ")}`);
+          if (!Object.keys(patch.data).length) return drop("set_module needs at least one field to change");
+          c.set = patch.data;
+          break;
+        }
         case "plot_function":
           if (!isValidExpression(c.expression)) return drop(`not a valid expression: ${c.expression}`);
           if (c.xMin !== undefined && c.xMax !== undefined && c.xMin >= c.xMax) return drop("xMin must be less than xMax");
@@ -184,6 +225,7 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
     return { title: step.title, commands };
   });
 
+  matchEnvironment(steps, typeof scene.environment?.preset === "string" ? scene.environment.preset : undefined);
   const plan = ScenePlan.safeParse({ ...env.data, steps });
   if (!plan.success) return { ok: false, error: plan.error.issues[0]?.message ?? "invalid plan" };
   return { ok: true, plan: plan.data, issues };

@@ -9,6 +9,8 @@ import { Shape } from "three";
 import type { AssetId } from "@/lib/world/catalog";
 import { isFurniture } from "@/lib/world/furnishings";
 import { FurnitureModel } from "./furniture";
+import { isNature } from "@/lib/world/nature";
+import { NatureModel } from "./nature";
 
 export function Mat({ c, r = 0.65, m = 0, e, ei = 0.8, o = 1, flat }: { c: string; r?: number; m?: number; e?: string; ei?: number; o?: number; flat?: boolean }) {
   return <meshStandardMaterial color={c} roughness={r} metalness={m} emissive={e ?? "#000000"} emissiveIntensity={e ? ei : 0} transparent={o < 1} opacity={o} flatShading={flat} depthWrite={o >= 1} />;
@@ -66,6 +68,7 @@ function Foliage({ y, r, c }: { y: number; r: number; c: string }) {
 }
 
 export function AssetModel({ asset, color }: { asset: AssetId; color?: string }) {
+  if (isNature(asset)) return <NatureModel asset={asset} color={color} />;
   if (isFurniture(asset)) return <FurnitureModel asset={asset} color={color} />;
   switch (asset) {
     case "ball_red":

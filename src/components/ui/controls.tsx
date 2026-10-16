@@ -8,7 +8,7 @@ import { execNow } from "@/lib/player";
 import { GRAVITY_PRESETS, fmt } from "@/lib/engine/projectile";
 import { ELEMENTS, MOLECULES, MOLECULE_IDS, type MoleculeId } from "@/lib/engine/chemistry";
 import { ASSETS, GUIDE_ID } from "@/lib/world/catalog";
-import type { Modules } from "@/lib/modules";
+import { MODULE_DEFAULTS, type Modules } from "@/lib/modules";
 import { isValidExpression } from "@/lib/engine/expr";
 import { measureShape } from "@/lib/engine/geometry";
 import { PLACES, distanceKm } from "@/lib/engine/geo";
@@ -156,6 +156,8 @@ function ChemControls() {
   };
   return (
     <>
+      <button className="btn btn-soft mt-2 w-full" onClick={() => execNow({ op: "show_periodic_table" })}>Read periodic table</button>
+      <button className="btn btn-soft mt-1 w-full" onClick={() => execNow({ op: "show_periodic_table", elements: [], groups: [], periods: [], marks: [], caption: "", focus: false })}>Clear table markings</button>
       <Caption>Molecules</Caption>
       <Seg label="Molecules" value={current?.type === "molecule" ? current.molecule : null} options={MOLECULE_IDS.map((m) => [m, MOLECULES[m].formula] as const)} onChange={(m) => show({ kind: "molecule", id: m })} cols={4} />
       <Caption>Atoms, simplified model</Caption>
@@ -321,17 +323,11 @@ function GlobeControls() {
   );
 }
 
-const WORKSHOP_DEFAULTS = {
-  circuit: { layout: "series", voltage: 6, bulbs: 2, resistance: 10, closed: true },
-  lever: { leftMass: 4, leftDistance: 1, rightMass: 2, rightDistance: 1.5 },
-  wave: { kind: "transverse", amplitude: 0.5, frequency: 1, wavelength: 2 },
-} as const satisfies { circuit: Modules["circuit"]; lever: Modules["lever"]; wave: Modules["wave"] };
-
 function WorkshopControls() {
   const { circuit, lever, wave } = useSim(useShallow((s) => ({ circuit: s.modules.circuit, lever: s.modules.lever, wave: s.modules.wave })));
   const active = circuit ? "circuit" : lever ? "lever" : wave ? "wave" : null;
   const pick = (k: "circuit" | "lever" | "wave") =>
-    patchModules({ circuit: k === "circuit" ? (circuit ?? { ...WORKSHOP_DEFAULTS.circuit }) : null, lever: k === "lever" ? (lever ?? { ...WORKSHOP_DEFAULTS.lever }) : null, wave: k === "wave" ? (wave ?? { ...WORKSHOP_DEFAULTS.wave }) : null });
+    patchModules({ circuit: k === "circuit" ? (circuit ?? MODULE_DEFAULTS.circuit) : null, lever: k === "lever" ? (lever ?? MODULE_DEFAULTS.lever) : null, wave: k === "wave" ? (wave ?? MODULE_DEFAULTS.wave) : null });
   return (
     <>
       <Seg label="Experiment" value={active} options={[["circuit", "Circuit"], ["lever", "Lever"], ["wave", "Wave"]] as const} onChange={pick} />
@@ -343,7 +339,7 @@ function WorkshopControls() {
             <Slider label="Battery" min={0} max={12} step={0.5} value={circuit.voltage} display={fmt(circuit.voltage, "V", 1)} onChange={(voltage) => patchModules({ circuit: { ...circuit, voltage } })} />
           </div>
           <Caption>Bulbs</Caption>
-          <Seg label="Bulbs" value={circuit.bulbs} options={[[1, "1"], [2, "2"], [3, "3"], [4, "4"]] as const} onChange={(bulbs) => patchModules({ circuit: { ...circuit, bulbs } })} />
+          <Seg label="Bulbs" value={circuit.bulbs} options={[[1, "1"], [2, "2"], [3, "3"], [4, "4"]] as const} onChange={(bulbs) => patchModules({ circuit: { ...circuit, bulbs, broken: circuit.broken.filter((i) => i < bulbs) } })} />
           <Toggle label="Switch closed" checked={circuit.closed} onChange={(closed) => patchModules({ circuit: { ...circuit, closed } })} />
         </>
       )}
@@ -366,7 +362,7 @@ function WorkshopControls() {
         </>
       )}
       <Note>
-        {circuit ? "You can also click the switch on the board." : lever ? "Turning effect = weight × distance from the pivot. Equal on both sides means balanced." : "Wave speed = frequency × wavelength."}
+        {circuit ? "Click the switch or any bulb on the board to open the switch or break and fix a bulb." : lever ? "Turning effect = weight × distance from the pivot. Equal on both sides means balanced." : "Wave speed = frequency × wavelength."}
       </Note>
     </>
   );

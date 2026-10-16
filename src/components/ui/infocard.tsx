@@ -2,12 +2,21 @@
 
 import { X } from "lucide-react";
 import { useSim, type InfoCard } from "@/lib/store";
+import { resolvePlaceholder } from "@/lib/player";
+import { fillPlaceholders } from "@/lib/ssp/validate";
 
 const TONE: Record<InfoCard["tone"], string> = { info: "var(--dot-info)", fact: "var(--dot-fact)", warning: "var(--dot-warning)", question: "var(--dot-question)" };
 
 /** One info card, in the same design as the controls card. */
-export function InfoCardView({ card, compact = false }: { card: InfoCard; compact?: boolean }) {
+export function InfoCardView({ card: raw, compact = false }: { card: InfoCard; compact?: boolean }) {
   const set = useSim((s) => s.set);
+  // Re-render on simulation changes so engine numbers stay current.
+  useSim((s) => s.modules);
+  useSim((s) => s.objects);
+  useSim((s) => s.gravity);
+  useSim((s) => s.projectile);
+  const fill = (t: string) => fillPlaceholders(t, resolvePlaceholder);
+  const card = { ...raw, title: fill(raw.title), subtitle: raw.subtitle && fill(raw.subtitle), rows: raw.rows.map((r) => ({ label: fill(r.label), value: fill(r.value) })), bullets: raw.bullets.map(fill) };
   return (
     <section className={`glass pop pointer-events-auto rounded-[22px] p-3 ${compact ? "w-[260px]" : "w-[min(360px,calc(100vw-24px))]"}`} aria-label={card.title}>
       <div className="flex items-start gap-2 pb-2 pl-1">

@@ -9,12 +9,14 @@ import { assetObject, type SceneObject } from "./world/scene";
 import { allSettled, emit, getBody, liveBodies, livePosition, waitFor } from "./world/runtime";
 import { fmt, toMetersPerSecond } from "./engine/projectile";
 import { fillPlaceholders } from "./ssp/validate";
-import type { Command, ScenePlan } from "./ssp/schema";
+import { MODULE_FIELDS, type Command, type ScenePlan } from "./ssp/schema";
+import { applyEnvironment } from "./environment";
 import { pickScene, projectileResult, useSim, type Explanation } from "./store";
 import { prefetchLine, speak, stopSpeaking, type VoiceRole } from "./tts";
-import { ALL_PLANETS, massFor, moduleValue, objectVolume, type Modules } from "./modules";
+import { ALL_PLANETS, MODULE_DEFAULTS, massFor, moduleValue, objectVolume, type Modules } from "./modules";
 import { PLACES } from "./engine/geo";
 import type { ShapeKind } from "./engine/geometry";
+import { EMPTY_TABLE } from "./periodic-table";
 
 let controller: AbortController | null = null;
 let skipLine: (() => void) | null = null;
@@ -55,6 +57,8 @@ export async function runPlan(plan: ScenePlan, source: Explanation["source"], op
     prePlanScene: opts.replay ? s.prePlanScene : pickScene(s),
     lastPlan: plan,
     question: null,
+    // Cards belong to the lesson that made them.
+    cards: [],
     explanation: {
       title: plan.title,
       reply: plan.reply,
@@ -411,14 +415,14 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       return;
     }
     case "show_card": {
-      // Placeholders are resolved now, so cards show the engine's numbers.
-      const fill = (t: string) => fillPlaceholders(t, resolvePlaceholder);
+      // Placeholders stay in the text; the card fills them as it renders, so
+      // its numbers follow the simulation (e.g. after a bulb breaks).
       const card = {
         id: c.id,
-        title: fill(c.title),
-        subtitle: c.subtitle ? fill(c.subtitle) : undefined,
-        rows: (c.rows ?? []).map((r) => ({ label: fill(r.label), value: fill(r.value) })),
-        bullets: (c.bullets ?? []).map(fill),
+        title: c.title,
+        subtitle: c.subtitle,
+        rows: c.rows ?? [],
+        bullets: c.bullets ?? [],
         placement: c.placement ?? (c.target ? "object" : "center"),
         target: c.target,
         tone: c.tone ?? "info",
@@ -439,6 +443,51 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       s.set({ capability: "orbits" });
       await sleep(500, signal);
       return;
+    case "set_module": {
+      const m = s.modules;
+      switch (c.module) {
+        case "orbits":
+          setModules({ orbits: { ...(m.orbits ?? MODULE_DEFAULTS.orbits), ...MODULE_FIELDS.orbits.parse(c.set) } });
+          break;
+        case "fluid":
+          setModules({ fluid: MODULE_FIELDS.fluid.parse(c.set).fluid ?? m.fluid ?? MODULE_DEFAULTS.fluid });
+          wakeAll();
+          break;
+        case "circuit": {
+          const p = MODULE_FIELDS.circuit.parse(c.set);
+          const cur = m.circuit ?? MODULE_DEFAULTS.circuit;
+          const bulbs = p.bulbs ?? cur.bulbs;
+          const broken = p.brokenBulbs ? p.brokenBulbs.map((n) => n - 1) : cur.broken;
+          setModules({ circuit: { layout: p.layout ?? cur.layout, voltage: p.voltage ?? cur.voltage, bulbs, resistance: p.resistanceOhms ?? cur.resistance, closed: p.switchClosed ?? cur.closed, broken: broken.filter((i) => i < bulbs) } });
+          break;
+        }
+        case "wave":
+          setModules({ wave: { ...(m.wave ?? MODULE_DEFAULTS.wave), ...MODULE_FIELDS.wave.parse(c.set) } });
+          break;
+        case "lever": {
+          const p = MODULE_FIELDS.lever.parse(c.set);
+          const cur = m.lever ?? MODULE_DEFAULTS.lever;
+          setModules({ lever: { leftMass: p.leftMassKg ?? cur.leftMass, leftDistance: p.leftDistanceM ?? cur.leftDistance, rightMass: p.rightMassKg ?? cur.rightMass, rightDistance: p.rightDistanceM ?? cur.rightDistance } });
+          break;
+        }
+        case "particles":
+          setModules({ particles: { ...(m.particles ?? MODULE_DEFAULTS.particles), ...MODULE_FIELDS.particles.parse(c.set) } });
+          break;
+        case "cell":
+          setModules({ cell: { ...(m.cell ?? MODULE_DEFAULTS.cell), ...MODULE_FIELDS.cell.parse(c.set) } });
+          break;
+        case "globe":
+          setModules({ globe: { ...(m.globe ?? MODULE_DEFAULTS.globe), ...MODULE_FIELDS.globe.parse(c.set) } });
+          break;
+      }
+      await sleep(500, signal);
+      return;
+    }
+    case "set_environment": {
+      s.set({ environment: applyEnvironment(s.environment, c) });
+      await sleep(400, signal);
+      return;
+    }
     case "set_fluid":
       setModules({ fluid: c.fluid });
       s.set({ capability: "buoyancy" });
@@ -470,7 +519,7 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       setModules({ plot: { functions: [], points: [], vectors: [] } });
       return;
     case "build_circuit":
-      setModules({ circuit: { layout: c.layout, voltage: c.voltage, bulbs: c.bulbs, resistance: c.resistanceOhms ?? 10, closed: c.switchClosed ?? true } });
+      setModules({ circuit: { layout: c.layout, voltage: c.voltage, bulbs: c.bulbs, resistance: c.resistanceOhms ?? 10, closed: c.switchClosed ?? true, broken: [] } });
       s.set({ capability: "circuit" });
       await sleep(600, signal);
       return;
@@ -499,6 +548,14 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       s.set({ capability: "cell" });
       await sleep(600, signal);
       return;
+    case "show_periodic_table": {
+      const { op: _op, focus: face, ...patch } = c;
+      void _op;
+      setModules({ periodicTable: { ...(s.modules.periodicTable ?? EMPTY_TABLE), ...patch } });
+      if (face !== false) s.focus({ preset: "periodic_table" });
+      await sleep(600, signal);
+      return;
+    }
     case "show_globe": {
       const g = s.modules.globe ?? { view: "globe" as const, spin: true, focus: null, marks: [], routes: [] };
       setModules({ globe: { ...g, view: c.view, spin: c.spin ?? g.spin, focus: c.focus ?? g.focus } });
@@ -542,6 +599,7 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       return;
     }
     case "clear_annotations":
+      if (s.modules.periodicTable) setModules({ periodicTable: EMPTY_TABLE });
       s.set({ annotations: [], vectors: [], metrics: [], formula: null, highlighted: [], cards: [] });
       return;
     case "focus_camera": {
@@ -587,7 +645,11 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       const { voice, voiceRate } = st().settings;
       const reading = sleep(Math.max(1800, 500 + text.length * 55) / voiceRate, line.signal);
       const role: VoiceRole = speaker ? speaker.kind : "narrator";
-      await (voice ? Promise.all([speak(text, { lang, rate: voiceRate, pitch: PITCH[speaker?.kind ?? ""] ?? 1, role, signal: line.signal }), sleep(1200, line.signal)]) : reading);
+      if (voice) {
+        const [heard] = await Promise.all([speak(text, { lang, rate: voiceRate, pitch: PITCH[speaker?.kind ?? ""] ?? 1, role, signal: line.signal }), sleep(1200, line.signal)]);
+        // Nothing played (no voice available): give the caption its reading time.
+        if (!heard) await reading;
+      } else await reading;
       signal.removeEventListener("abort", onAbort);
       skipLine = null;
       if (speaker && st().characters[speaker.id]?.animation === "talk") st().patchCharacter(speaker.id, { animation: "idle" });

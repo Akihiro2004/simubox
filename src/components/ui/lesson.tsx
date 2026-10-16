@@ -1,9 +1,10 @@
 "use client";
 
 import { Check, ChevronDown, RotateCcw, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { MathText } from "./formula";
 import { useSim } from "@/lib/store";
-import { answerQuestion, placeholderValues, replay, skipSpeech } from "@/lib/player";
+import { answerQuestion, placeholderValues, replay, resolvePlaceholder, skipSpeech } from "@/lib/player";
 import { MOLECULES } from "@/lib/engine/chemistry";
 
 const SUPPORT: Record<string, { label: string; dot: string }> = {
@@ -59,11 +60,15 @@ export function ExplanationCard() {
         <div className="group-rows mt-3">
           <div className="px-3.5 pb-2 pt-2.5">
             <p className="text-[13px] font-semibold text-ink-3">{formula.title}</p>
-            <p className="mt-0.5 text-[19px] font-extrabold tracking-tight">{formula.formula}</p>
+            <p className="mt-1 font-serif text-[21px] font-semibold">
+              <MathText src={formula.formula} />
+            </p>
           </div>
           {formula.variables.map((v) => (
             <div key={v.symbol} className="flex items-baseline gap-3 px-3.5 py-2 text-[14px]">
-              <span className="w-6 shrink-0 font-extrabold italic">{v.symbol}</span>
+              <span className="min-w-6 shrink-0 font-serif text-[16px] font-semibold">
+                <MathText src={v.symbol} />
+              </span>
               <span className="font-semibold text-ink-2">
                 {v.meaning}
                 {v.unit ? `, in ${v.unit}` : ""}
@@ -196,7 +201,12 @@ export function QuestionCard() {
   );
 }
 
-const METRIC_LABEL: Record<string, string> = { range: "lands at", flight_time: "in the air", max_height: "highest point", impact_speed: "landing speed", gravity: "gravity", bond_angle: "bond angle" };
+const METRIC_LABEL: Record<string, string> = {
+  range: "lands at", flight_time: "in the air", max_height: "highest point", impact_speed: "landing speed", gravity: "gravity", bond_angle: "bond angle",
+  current: "current", total_resistance: "resistance", power: "power", wave_speed: "wave speed", torque_left: "left turning effect", torque_right: "right turning effect",
+  phase: "state", rms_speed: "particle speed", day: "orbit day", season: "season", moon_phase: "Moon", volume: "volume", surface_area: "surface area", float_fraction: "under water",
+};
+const CLOCK_METRICS = ["day", "season", "moon_phase"];
 
 /** One instrument readout capsule, top centre. */
 export function Metrics() {
@@ -205,13 +215,23 @@ export function Metrics() {
   useSim((s) => s.gravity);
   const objects = useSim((s) => s.objects);
   const status = useSim((s) => s.projectile?.status);
+  useSim((s) => s.modules);
+  // Orbit readouts follow the running clock, which lives outside the store.
+  const [, tick] = useState(0);
+  const clocked = metrics.some((m) => CLOCK_METRICS.includes(m));
+  useEffect(() => {
+    if (!clocked) return;
+    const t = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [clocked]);
   if (!metrics.length) return null;
   const v = placeholderValues();
   const mol = Object.values(objects).find((o) => o.type === "molecule");
   const value = (m: string) => {
     if (m === "bond_angle") return mol?.type === "molecule" && MOLECULES[mol.molecule].angles[0] ? `${MOLECULES[mol.molecule].angles[0].deg}°` : "–";
     if (m !== "gravity" && status === "flying") return "…";
-    return v[m] ?? "–";
+    const [name, arg] = m.split(":");
+    return (arg ? undefined : v[name] !== "?" ? v[name] : undefined) ?? resolvePlaceholder(name, arg) ?? "–";
   };
   return (
     <div className="pointer-events-none fixed inset-x-0 top-[68px] z-10 flex justify-center px-3 sm:top-6">
@@ -219,7 +239,7 @@ export function Metrics() {
         {metrics.map((m, i) => (
           <div key={m} className={`px-4 py-1.5 text-center ${i ? "border-l border-[var(--hairline)]" : ""}`}>
             <p className="text-[17px] font-extrabold tabular-nums">{value(m)}</p>
-            <p className="text-[12px] font-semibold text-ink-3">{METRIC_LABEL[m]}</p>
+            <p className="text-[12px] font-semibold text-ink-3">{METRIC_LABEL[m.split(":")[0]] ?? m}</p>
           </div>
         ))}
       </div>

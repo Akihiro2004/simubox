@@ -75,9 +75,12 @@ function pickVoice(lang: string): SpeechSynthesisVoice | undefined {
   return voices.find((v) => v.lang.startsWith(base) && /natural|neural|google|samantha|aria|jenny/i.test(v.name)) ?? voices.find((v) => v.lang.startsWith(base));
 }
 
-function browserSpeak(text: string, opts: { lang: "en" | "id"; rate: number; pitch: number; signal: AbortSignal }): Promise<void> {
-  if (!("speechSynthesis" in window) || opts.signal.aborted) return Promise.resolve();
+/** Resolves true once spoken; false at once when the browser has no voice to speak with. */
+function browserSpeak(text: string, opts: { lang: "en" | "id"; rate: number; pitch: number; signal: AbortSignal }): Promise<boolean> {
+  if (!("speechSynthesis" in window) || opts.signal.aborted) return Promise.resolve(false);
   const synth = window.speechSynthesis;
+  // No installed voices (e.g. headless browsers): nothing would be heard.
+  if (!synth.getVoices().length) return Promise.resolve(false);
   return new Promise((resolve) => {
     const u = new SpeechSynthesisUtterance(text);
     u.lang = opts.lang === "id" ? "id-ID" : "en-US";
@@ -91,7 +94,7 @@ function browserSpeak(text: string, opts: { lang: "en" | "id"; rate: number; pit
       settled = true;
       opts.signal.removeEventListener("abort", onAbort);
       clearTimeout(guard);
-      resolve();
+      resolve(true);
     };
     const onAbort = () => {
       synth.cancel();
@@ -107,19 +110,19 @@ function browserSpeak(text: string, opts: { lang: "en" | "id"; rate: number; pit
   });
 }
 
-/** Speaks `text`; resolves when finished, cancelled or failed. */
-export async function speak(text: string, opts: { lang: "en" | "id"; rate: number; pitch: number; role: VoiceRole; signal: AbortSignal }): Promise<void> {
-  if (typeof window === "undefined" || opts.signal.aborted) return;
+/** Speaks `text`; resolves when finished or cancelled: true if it was heard, false if nothing played. */
+export async function speak(text: string, opts: { lang: "en" | "id"; rate: number; pitch: number; role: VoiceRole; signal: AbortSignal }): Promise<boolean> {
+  if (typeof window === "undefined" || opts.signal.aborted) return false;
   if (!geminiOff) {
     // Lines are prefetched, so this is usually instant. A slow line waits (its
     // caption is already showing) instead of switching to the robotic browser
     // voice mid-lesson; the browser voice is only for servers without Gemini.
     const url = await timeout(prefetchLine(text, opts.role, opts.lang), 12000, null);
-    if (opts.signal.aborted) return;
-    if (url && (await playUrl(url, opts.rate, opts.signal))) return;
-    if (!url && !geminiOff) return;
+    if (opts.signal.aborted) return true;
+    if (url && (await playUrl(url, opts.rate, opts.signal))) return true;
+    if (!url && !geminiOff) return false;
   }
-  await browserSpeak(text, opts);
+  return browserSpeak(text, opts);
 }
 
 export function stopSpeaking() {

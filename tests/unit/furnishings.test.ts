@@ -6,6 +6,11 @@ import { validatePlan } from "@/lib/ssp/validate";
 import { systemPrompt } from "@/lib/ai/prompt";
 
 describe("editable map furnishings", () => {
+  it("keeps the bedroom bookcase clear of the curtain", () => {
+    const shelf = initialObjects("bedroom").find(o => o.id === "bookcase")!;
+    const rightEdge = shelf.position[0] + ASSETS.bookcase.size[0] * shelf.scale / 2;
+    expect(rightEdge).toBeLessThan(-2.1);
+  });
   it.each(WORLD_IDS)("%s has unique, bounded scene assets and room for lesson spawns", world => {
     const objects = initialObjects(world);
     expect(new Set(objects.map(o => o.id)).size).toBe(objects.length);

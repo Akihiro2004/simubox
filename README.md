@@ -71,13 +71,24 @@ npm run lint
 
 ## Deploy to Google Cloud Run
 
-Cloud Build builds the Dockerfile remotely, so Docker isn't needed locally. Gemini runs through Vertex AI using the service's own identity, so no API key is stored.
+The app ships as a container (`Dockerfile`: multi-stage Node 22, Next.js standalone server on port 8080). Cloud Build builds it remotely during deploy, so a local Docker install is optional.
 
 ```powershell
+# Vertex AI with the service's own identity (no key stored)
 ./scripts/deploy.ps1 -Project YOUR_PROJECT_ID -Region asia-southeast1
+
+# Or use your AI Studio key: read from GEMINI_API_KEY or .env.local and stored in Secret Manager
+./scripts/deploy.ps1 -Project YOUR_PROJECT_ID -UseApiKey
 ```
 
-The script enables the needed APIs, creates a least-privilege runtime service account (`roles/aiplatform.user` only), and deploys with scale-to-zero and at most 3 instances to cap spending. Add `-FirebaseApiKey`, `-FirebaseAuthDomain` and `-FirebaseAppId` to turn on sign-in.
+The script enables the needed APIs, creates a least-privilege runtime service account (`roles/aiplatform.user`, plus secret access with `-UseApiKey`), and deploys with scale-to-zero and at most 3 instances to cap spending. Add `-FirebaseApiKey`, `-FirebaseAuthDomain`, `-FirebaseAppId` (and `-FirebaseProjectId` if Firebase lives in another project) to turn on sign-in.
+
+To test the container locally (Docker Desktop running):
+
+```powershell
+docker build -t simubox .
+docker run --rm -p 8080:8080 --env-file .env.local simubox   # then open http://localhost:8080
+```
 
 ### Firebase (optional, for accounts)
 

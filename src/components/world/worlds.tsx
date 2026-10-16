@@ -4,7 +4,7 @@
 // Rooms have four walls; any wall between the camera and the room lowers to
 // a baseboard stub (a dollhouse cutaway), so orbiting always shows inside.
 
-import { Html, RoundedBox } from "@react-three/drei";
+import { RoundedBox } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { CuboidCollider, CylinderCollider, RigidBody } from "@react-three/rapier";
 import { useRef } from "react";
@@ -12,8 +12,13 @@ import { MathUtils, type Group } from "three";
 import type { WorldId } from "@/lib/world/catalog";
 import { wallBlocksView } from "@/lib/world/cutaway";
 import { AssetModel, Mat } from "./assets";
-import { Artwork, BedroomTextiles, DrapedWindow, OakFloor, ParkDetails, WallFinish, Trim, LabWall } from "./architecture";
+import { Artwork, BedroomTextiles, DrapedWindow, OakFloor, WallFinish, Trim, LabWall } from "./architecture";
 import { GlobeMap, MathMap, OceanMap, SpaceMap, WorkshopInterior } from "./maps";
+import { CourtLandscape, PlinthBand, Rim, Sconce, StudyWall, WorkshopWall } from "./scenery";
+import { CourtPaint } from "./court-campus";
+import { useSim } from "@/lib/store";
+import { GardenPark } from "./garden-park";
+import { PeriodicTable } from "./periodic-table";
 
 const S = { castShadow: true, receiveShadow: true } as const;
 const HALF = 4.08; // wall centre-line distance from the room centre
@@ -65,6 +70,7 @@ function Room({ floor, base, wall, animate, decor, children }: { floor: string; 
       <RoundedBox args={[8.2, 1.2, 8.2]} radius={0.22} position={[0, -0.92, 0]}>
         <Mat c={base} r={0.9} />
       </RoundedBox>
+      <RoundedBox args={[8.25, .055, 8.25]} radius={.025} position={[0, -.36, 0]}><Mat c="#8c806b" r={.5} m={.25} /></RoundedBox>
       {(Object.keys(SIDES) as Side[]).map((side) => (
         <Wall key={side} side={side} color={wall} animate={animate}>
           {decor[side]}
@@ -150,28 +156,6 @@ function Clock({ x, y }: { x: number; y: number }) {
   );
 }
 
-function PeriodicPoster({ x }: { x: number }) {
-  return (
-    <group position={[x, 2.2, 0.13]}>
-      <RoundedBox args={[2.6, 1.4, 0.04]} radius={0.03}>
-        <Mat c="#ffffff" />
-      </RoundedBox>
-      {Array.from({ length: 4 }).flatMap((_, r) =>
-        Array.from({ length: 18 }).map((__, c) => {
-          const show = r === 0 ? c === 0 || c === 17 : r === 1 || r === 2 ? c < 2 || c > 11 : true;
-          if (!show) return null;
-          return (
-            <mesh key={`${r}-${c}`} position={[-1.15 + c * 0.135, 0.45 - r * 0.22, 0.025]}>
-              <planeGeometry args={[0.115, 0.18]} />
-              <meshBasicMaterial color={c < 2 ? "#ffb3a7" : c > 11 ? (c === 17 ? "#b7d3ff" : "#a8e2c4") : "#ffe08a"} />
-            </mesh>
-          );
-        }),
-      )}
-    </group>
-  );
-}
-
 // ---------- worlds ----------
 
 function Bedroom({ animate }: { animate: boolean }) {
@@ -182,10 +166,10 @@ function Bedroom({ animate }: { animate: boolean }) {
       wall="#efe6d3"
       animate={animate}
       decor={{
-        "-z": <><DrapedWindow x={-0.6} /><Artwork x={2.3} /></>,
+        "-z": <><DrapedWindow x={-0.6} /><Artwork x={2.3} /><Sconce x={3.45} /></>,
         "-x": <><DrapedWindow x={-1.9} /><Artwork x={1.25} variant={1} /></>,
         "+x": <><DrapedWindow x={0.6} /><Artwork x={-2.1} /></>,
-        "+z": <Door x={-1.8} />,
+        "+z": <><Door x={-1.8} /><StudyWall /><Sconce x={-3.15} /></>,
       }}
     >
       <OakFloor />
@@ -203,8 +187,8 @@ function Lab({ animate }: { animate: boolean }) {
       animate={animate}
       decor={{
         "-z": <><Window x={1.4} y={2.3} /><LabWall /></>,
-        "-x": <PeriodicPoster x={-0.2} />,
-        "+x": <Clock x={0.6} y={2.6} />,
+        "-x": <PeriodicTable x={-0.2} />,
+        "+x": <><Clock x={0.6} y={2.6} /><LabWall /></>,
         "+z": <Door x={-1.8} />,
       }}
     >
@@ -220,21 +204,27 @@ function Lab({ animate }: { animate: boolean }) {
           </mesh>
         </group>
       ))}
+      <Rim radius={1.35} y={.008} color="#a0b6ad" width={.025} />
     </Room>
   );
 }
 
 function Court() {
   const markers = Array.from({ length: 12 }, (_, i) => (i + 1) * 5);
+  // set_environment can hide the campus scenery and recolour the ground (Moon, Mars...).
+  const scenery = useSim((s) => s.environment?.scenery ?? true);
+  const ground = useSim((s) => s.environment?.ground ?? null);
+  const surface = useSim((s) => s.environment?.surface ?? null);
   return (
     <>
+      {scenery && <CourtLandscape />}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[20, -0.01, 0]} receiveShadow>
         <planeGeometry args={[3000, 3000]} />
-        <Mat c="#a3b780" r={1} />
+        <Mat c={ground ?? "#a3b780"} r={1} />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[28, 0.002, 0]} receiveShadow>
         <planeGeometry args={[66, 13]} />
-        <Mat c="#688e9e" r={0.85} />
+        <Mat c={surface ?? "#688e9e"} r={0.85} />
       </mesh>
       {[-6.3, 6.3].map((z) => (
         <mesh key={z} rotation={[-Math.PI / 2, 0, 0]} position={[28, 0.004, z]}>
@@ -252,29 +242,12 @@ function Court() {
             <planeGeometry args={[0.06, 12.6]} />
             <meshBasicMaterial color="#ffffff" transparent opacity={x % 10 === 0 ? 0.85 : 0.45} />
           </mesh>
-          {x % 10 === 0 || x <= 20 ? (
-            <Html position={[0, 0.02, 6.9]} center zIndexRange={[5, 0]} style={{ pointerEvents: "none" }}>
-              <div className="ground-label">{x} m</div>
-            </Html>
-          ) : null}
         </group>
       ))}
       {/* Perimeter paving and lane-end border. Measurements keep their original coordinates. */}
       {[-7.1, 7.1].map(z => <Trim key={z} size={[66, .035, 1.1]} at={[28, -.005, z]} color="#c9c5ad" />)}
       <Trim size={[.14, .01, 13]} at={[-4.9, .008, 0]} color="#f8edd6" />
-      {[
-        [-6, -8],
-        [-7, 6],
-        [10, 11],
-        [24, 11],
-        [36, -11],
-        [48, 10],
-        [3, -12],
-      ].map(([x, z], i) => (
-        <group key={i} position={[x, 1.3, z]} scale={1.3}>
-          <AssetModel asset="tree" color={i % 2 ? "#4caf50" : "#3e9b48"} />
-        </group>
-      ))}
+      <CourtPaint track={surface} />
       <group position={[61, 0, 0]}>
         <mesh position={[0.4, 1.6, 0]} castShadow>
           <cylinderGeometry args={[0.08, 0.08, 3.2, 10]} />
@@ -298,33 +271,7 @@ function Court() {
 function Park() {
   return (
     <>
-      <mesh position={[0, -0.3, 0]} {...S}>
-        <cylinderGeometry args={[6.8, 6.6, 0.6, 48]} />
-        <Mat c="#9eb67d" r={0.95} />
-      </mesh>
-      <mesh position={[0, -1.25, 0]} rotation={[Math.PI, 0, 0]}>
-        <coneGeometry args={[6.6, 1.8, 48]} />
-        <Mat c="#b08560" r={1} />
-      </mesh>
-      <mesh position={[-2.2, 0.004, 2.4]} rotation={[-Math.PI / 2, 0, 0]} scale={[1.4, 0.9, 1]}>
-        <circleGeometry args={[1, 40]} />
-        <Mat c="#6caeae" r={0.22} m={0.15} />
-      </mesh>
-      <mesh position={[1.2, 0.003, 2.2]} rotation={[-Math.PI / 2, 0, 0.5]}>
-        <planeGeometry args={[1, 7]} />
-        <Mat c="#ebddc4" r={1} />
-      </mesh>
-      <ParkDetails />
-      {[
-        [0.5, -3.5],
-        [2.2, -4.1],
-        [-5.4, 1.2],
-      ].map(([x, z], i) => (
-        <mesh key={i} position={[x, 0.2, z]} castShadow>
-          <icosahedronGeometry args={[0.35, 1]} />
-          <Mat c="#6cc070" flat />
-        </mesh>
-      ))}
+      <GardenPark />
       <group position={[-7, 8, -9]}>
         <AssetModel asset="sun" />
       </group>
@@ -359,6 +306,8 @@ function Stage() {
         return <group key={i} rotation={[0, a, 0]}><Trim size={[.018, .008, i % 4 === 0 ? .2 : .09]} at={[0, .006, 4.4]} color="#9aafa7" /></group>;
       })}
       <mesh position={[0, -.42, 0]}><cylinderGeometry args={[5.015, 5.015, .035, 96]} /><Mat c="#b59a64" m={.45} r={.4} /></mesh>
+      <PlinthBand radius={4.93} y={-.59} color="#768d8d" />
+      <Rim radius={4.85} y={.008} color="#bca777" width={.035} />
       <RigidBody type="fixed" colliders={false}>
         <CylinderCollider args={[0.2, 5]} position={[0, -0.2, 0]} />
       </RigidBody>
@@ -379,7 +328,7 @@ export function WorldDecor({ world, animate }: { world: WorldId; animate: boolea
     case "stage":
       return <Stage />;
     case "space":
-      return <SpaceMap />;
+      return <SpaceMap animate={animate} />;
     case "ocean":
       return <OceanMap />;
     case "math":
@@ -388,7 +337,7 @@ export function WorldDecor({ world, animate }: { world: WorldId; animate: boolea
       return <GlobeMap />;
     case "workshop":
       return (
-        <Room floor="#cdb08a" base="#a9b4bf" wall="#e8ebee" animate={animate} decor={{ "-x": <Window x={-1.4} />, "+x": <Window x={0.6} />, "+z": <Door x={-1.8} /> }}>
+        <Room floor="#cdb08a" base="#8c9a91" wall="#e8ebee" animate={animate} decor={{ "-z": <WorkshopWall />, "-x": <><Window x={-1.4} /><Artwork x={1.3} /></>, "+x": <Window x={0.6} />, "+z": <><Door x={-1.8} /><StudyWall /></> }}>
           <WorkshopInterior />
         </Room>
       );
