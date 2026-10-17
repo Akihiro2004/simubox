@@ -66,7 +66,7 @@ function matchEnvironment(steps: { title: string; commands: Command[] }[], curre
   first.splice(at < 0 ? first.length : at, 0, { op: "set_environment", preset: place });
 }
 
-export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | "objects" | "characters"> & { environment?: Record<string, unknown> }): ValidationResult {
+export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | "objects" | "characters"> & { environment?: Record<string, unknown>; layouts?: SceneSnapshot["layouts"] }): ValidationResult {
   const env = LoosePlan.safeParse(raw);
   if (!env.success) {
     return { ok: false, error: env.error.issues.slice(0, 6).map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") };
@@ -79,7 +79,9 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
   const marks = new Set<string>();
   const resetTo = (w: WorldId) => {
     objects.clear();
-    for (const o of initialObjects(w)) objects.add(o.id);
+    const layout = scene.layouts?.find(map => map.world === w);
+    if (layout) for (const id of layout.ids) objects.add(id);
+    else for (const o of initialObjects(w)) objects.add(o.id);
     characters.clear();
     characters.add(GUIDE_ID);
     marks.clear();
@@ -124,7 +126,7 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
 
       switch (c.op) {
         case "load_world":
-          // Loading (even the same world) resets to its starting objects + guide.
+          // Match the player's learner-authored layout, falling back to the template.
           world = c.world;
           resetTo(world);
           break;

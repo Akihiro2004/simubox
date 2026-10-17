@@ -8,10 +8,11 @@ import { useSim } from "@/lib/store";
 import { nodes } from "@/lib/world/runtime";
 import type { Character } from "@/lib/world/scene";
 import { skipSpeech } from "@/lib/player";
+import { RevealText } from "../ui/kit";
 import { Mat } from "./assets";
 
 type Part = "root" | "body" | "head" | "armL" | "armR" | "legL" | "legR" | "eyes";
-type Parts = Record<Part, Group | null>;
+export type Parts = Record<Part, Group | null>;
 type PartsRef = RefObject<Parts>;
 
 /** Callback ref that files a group under `k` (refs are only touched on commit). */
@@ -145,7 +146,7 @@ function useCharacterMotion(c: Character, partsRef: PartsRef, opts: { hover: boo
 }
 
 
-function Robot({ c, partsRef }: { c: Character; partsRef: PartsRef }) {
+export function Robot({ c, partsRef }: { c: Character; partsRef: PartsRef }) {
   const accent = c.color ?? "#38bdf8";
   return (
     <group ref={bind(partsRef, "body")}>
@@ -332,7 +333,7 @@ function SpeechBubble({ c, height }: { c: Character; height: number }) {
     >
       <button ref={bubble} key={speech.key} type="button" className="speech-bubble relative block px-4 py-2.5" onClick={skipSpeech} aria-label={`${c.name} says: ${speech.text}. Click to skip.`}>
         {c.id !== "simu" && <span className="mb-0.5 block text-[12px] font-bold text-ink-3">{c.name}</span>}
-        {speech.text}
+        <RevealText text={speech.text} />
       </button>
     </Html>
   );

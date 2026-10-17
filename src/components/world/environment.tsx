@@ -14,14 +14,21 @@ export const MOOD: Record<Exclude<LightMood, "day">, { sky: string; ground: stri
   dim: { sky: "#7fc6d9", ground: "#3b5f66", hemi: 0.45, ambient: 0.1, sun: "#bfe6f0", sunI: 1.2, fill: 0.3 },
 };
 
-// Deterministic crater field around the court (kept off the measured lanes).
-const CRATERS = Array.from({ length: 34 }, (_, i) => {
-  const a = Math.sin(i * 12.9898) * 43758.5453;
-  const b = Math.sin(i * 78.233) * 12345.6789;
-  const fx = a - Math.floor(a), fz = b - Math.floor(b);
-  const side = i % 2 ? 1 : -1;
-  return { x: -12 + fx * 80, z: side * (8.5 + fz * 22), r: 0.6 + ((fx * 7) % 1) * 2.4 };
-});
+// Sparse, staggered craters with generous gaps, clear of the measured lanes.
+const CRATERS = [
+  { x: -12, z: -18, r: 1.6 },
+  { x: 2, z: -30, r: 1.1 },
+  { x: 17, z: -15, r: 2.1 },
+  { x: 31, z: -27, r: 1.3 },
+  { x: 47, z: -17, r: 1.8 },
+  { x: 65, z: -29, r: 1.2 },
+  { x: -10, z: 27, r: 1.2 },
+  { x: 4, z: 15, r: 1.7 },
+  { x: 20, z: 29, r: 2 },
+  { x: 35, z: 16, r: 1.15 },
+  { x: 50, z: 31, r: 1.5 },
+  { x: 66, z: 17, r: 2.2 },
+];
 
 function Earth() {
   const map = useMemo(() => getEarthTexture(), []);

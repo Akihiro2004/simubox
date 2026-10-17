@@ -23,6 +23,23 @@ service cloud.firestore {
       allow read, delete: if isOwner();
       allow create, update: if isOwner() && validExperiment();
     }
+    // Remembers that the student finished the welcome flow, and what they chose in it.
+    match /users/{uid}/meta/{docId} {
+      function isSelf() {
+        return request.auth != null && request.auth.uid == uid;
+      }
+      function validProfile() {
+        let d = request.resource.data;
+        return docId == 'profile'
+          && d.keys().hasOnly(['onboardedAt', 'gradeBand', 'language', 'voice'])
+          && d.onboardedAt is int
+          && (!('gradeBand' in d) || d.gradeBand in ['elementary', 'middle', 'high'])
+          && (!('language' in d) || d.language in ['auto', 'en', 'id'])
+          && (!('voice' in d) || d.voice is bool);
+      }
+      allow read: if isSelf();
+      allow create, update: if isSelf() && validProfile();
+    }
     match /{document=**} {
       allow read, write: if false;
     }

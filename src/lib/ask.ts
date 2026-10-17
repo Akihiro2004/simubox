@@ -2,7 +2,8 @@
 
 import { pickFixture } from "./ai/fixtures";
 import { safePlan, looksIndonesian } from "./ai/guard";
-import { idToken } from "./firebase";
+import { idToken, initFirebase, useAuth } from "./firebase";
+import { countGuestQuestion, guestQuestionsUsed, mustSignIn } from "./guest";
 import { cancelPlayback, finishPlan, runPlan } from "./player";
 import { ScenePlan, Step } from "./ssp/schema";
 import { snapshot, useSim } from "./store";
@@ -83,6 +84,14 @@ async function readPlanStream(res: Response, signal: AbortSignal, onBegin: (plan
 export async function ask(raw: string) {
   const prompt = raw.trim().slice(0, LIMITS.maxPromptChars);
   if (!prompt) return;
+  // One free question for guests; after that the sign-in card holds the question.
+  await initFirebase();
+  const auth = useAuth.getState();
+  if (mustSignIn(Boolean(auth.user), auth.available, guestQuestionsUsed())) {
+    useSim.getState().set({ signInGate: { question: prompt }, draft: prompt });
+    return;
+  }
+  if (!auth.user) countGuestQuestion();
   inflight?.abort();
   const ctl = new AbortController();
   inflight = ctl;

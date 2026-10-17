@@ -345,13 +345,15 @@ export interface PlanIssue {
 /** Compact snapshot of the scene the client sends with follow-up prompts. */
 export const SceneSnapshot = z.object({
   world: z.enum(WORLD_IDS),
+  /** Customized map instance ids, used when the director changes worlds. */
+  layouts: z.array(z.object({ world: z.enum(WORLD_IDS), ids: z.array(Id).max(LIMITS.maxObjects) })).max(WORLD_IDS.length).optional(),
   gravity: z.array(z.number()).length(3),
   capability: z.enum(CAPABILITIES).optional(),
   projectile: z
     .object({ speed: z.number(), angleDeg: z.number(), gravity: z.number(), height: z.number(), range: z.number().nullable(), flightTime: z.number().nullable(), maxHeight: z.number().nullable() })
     .optional(),
   objects: z
-    .array(z.object({ id: z.string().max(32), kind: z.string().max(32), label: z.string().max(40).optional(), position: z.array(z.number()).length(3), physics: z.string().max(10) }))
+    .array(z.object({ id: z.string().max(32), kind: z.string().max(32), label: z.string().max(40).optional(), position: z.array(z.number()).length(3), physics: z.string().max(10), learnerPlaced: z.boolean().optional() }))
     .max(60),
   characters: z.array(z.object({ id: z.string().max(32), kind: z.string().max(16), name: z.string().max(20) })).max(8),
   selected: z.string().max(32).nullable().optional(),

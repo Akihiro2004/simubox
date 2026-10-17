@@ -8,14 +8,13 @@ export const metadata: Metadata = {
   title: "SimuBox: Ask anything. Watch it come to life.",
   description: "An AI-directed, interactive 3D science world for students. Ask a question and Simu builds a live experiment you can play with.",
   applicationName: "SimuBox",
-  icons: { icon: "/icon.svg" },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#10143c",
+  themeColor: "#eef1f5",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

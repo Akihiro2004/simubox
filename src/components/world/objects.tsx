@@ -18,6 +18,10 @@ import { useMotion } from "@/lib/useMotion";
 import { beginGrab, DragController } from "./drag";
 import { isFurniture } from "@/lib/world/furnishings";
 import { FurnitureColliders } from "./furniture";
+import { isLearningAsset } from "@/lib/world/learning-assets";
+import { LearningColliders } from "./learning-assets";
+import { beginMapGrab, MapDragController } from "../builder/map-drag";
+import { useBuilder } from "@/lib/builder/store";
 
 const DEG = Math.PI / 180;
 
@@ -31,6 +35,7 @@ function Colliders({ o }: { o: SceneObject }) {
   const s = o.scale;
   const common = { mass: o.massKg, restitution: o.bounciness, friction: 0.6 };
   if (o.type === "asset") {
+    if (isLearningAsset(o.asset)) return <LearningColliders asset={o.asset} scale={s} mass={o.massKg} restitution={o.bounciness} />;
     if (isFurniture(o.asset)) return <FurnitureColliders asset={o.asset} scale={s} mass={o.massKg} restitution={o.bounciness} />;
     const def = ASSETS[o.asset];
     if (o.asset === "ramp") return <ConvexHullCollider args={[rampHull(s)]} {...common} />;
@@ -107,12 +112,12 @@ function PhysObject({ o }: { o: SceneObject }) {
   const select = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
     useSim.getState().set({ selectedId: o.id });
-    beginGrab(e, o);
+    if (!beginMapGrab(e, o)) beginGrab(e, o);
   };
 
   if (!o.visible) return null;
   const model = (
-    <group scale={o.scale} onPointerDown={select} onPointerOver={(e) => onOver(e, o.physics === "dynamic")} onPointerOut={onOut}>
+    <group scale={o.scale} onPointerDown={select} onPointerOver={(e) => onOver(e, o.physics === "dynamic" || useBuilder.getState().editing)} onPointerOut={onOut}>
       <Appear on={pop}>
         <Model o={o} animate={animate} />
       </Appear>
@@ -204,6 +209,7 @@ export function SceneObjects({ animate }: { animate: boolean }) {
         <ObjectById key={id} id={id} />
       ))}
       <DragController />
+      <MapDragController />
       <Watchdog />
       {selectedId && <Ring key={`sel-${selectedId}`} id={selectedId} color="#ffffff" animate={animate} />}
       {highlighted

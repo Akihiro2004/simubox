@@ -17,6 +17,38 @@ export const VOICES = {
 } as const;
 export type VoiceRole = keyof typeof VOICES;
 
+/**
+ * English lines are voiced by Speechify Simba 3.2 (fast, cheaper, no daily
+ * request cap); Indonesian stays on Gemini, which Simba doesn't speak. One of
+ * Simba 3.2's curated English voices per kind of speaker; override any of
+ * them with SPEECHIFY_VOICES='{"kid":"harper_32"}'.
+ */
+export const SPEECHIFY_MODEL = process.env.SPEECHIFY_MODEL || "simba-3.2";
+export const SPEECHIFY_VOICES: Record<VoiceRole, string> = {
+  robot: "edmund_32", // dynamic, bright; made for animation and e-learning
+  kid: "harper_32", // playful, soft (Simba has no child voices)
+  teacher: "beatrice_32", // warm, emotive, e-learning
+  scientist: "wyatt_32", // middle-aged, sophisticated
+  astronaut: "dominic_32", // heartfelt, deep
+  narrator: "geffen_32", // warm, clear American
+  ...(() => {
+    try {
+      return JSON.parse(process.env.SPEECHIFY_VOICES || "{}") as Partial<Record<VoiceRole, string>>;
+    } catch {
+      return {};
+    }
+  })(),
+};
+
+export function speechifyConfigured(): boolean {
+  return Boolean(process.env.SPEECHIFY_API_KEY);
+}
+
+/** Who voices a line: Speechify for English when it has a key, otherwise Gemini. */
+export function voiceProvider(lang: "en" | "id"): "speechify" | "gemini" {
+  return lang === "en" && speechifyConfigured() ? "speechify" : "gemini";
+}
+
 
 let client: GoogleGenAI | null = null;
 const ai = () =>
@@ -37,20 +69,73 @@ export interface SpeechStream {
 
 const TRANSIENT = /fetch failed|ECONNRESET|UND_ERR|429|500|503|UNAVAILABLE/i;
 
+/** Keeps a finished line in the LRU so replays and repeated lines cost nothing. */
+function remember(key: string, stream: SpeechStream): SpeechStream {
+  const src = stream.chunks;
+  async function* chunks() {
+    const all: Buffer[] = [];
+    for await (const b of src) {
+      all.push(b);
+      yield b;
+    }
+    cache.set(key, { pcm: Buffer.concat(all), rate: stream.rate });
+    if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value!);
+  }
+  return { rate: stream.rate, chunks: chunks() };
+}
+
 /**
  * Speaks one line as raw 16-bit mono PCM, streamed: the first chunk arrives
- * in about a second, long before the whole line is generated. Resolves once
- * the first audio is in hand, so failures still surface as errors.
+ * well before the whole line is generated. Resolves once the first audio is
+ * in hand, so failures still surface as errors. English goes to Speechify and
+ * falls back to Gemini if Speechify can't take it.
  */
 export async function synthesizeStream(text: string, role: VoiceRole, lang: "en" | "id", cancel?: AbortSignal): Promise<SpeechStream> {
+  const provider = voiceProvider(lang);
   // v3: raw PCM. v2 lines are sent bare (v1 style-prompted audio could contain the instruction).
-  const key = `v3|${role}|${lang}|${text}`;
+  const key = `${provider}|v3|${role}|${lang}|${text}`;
   const hit = cache.get(key);
   if (hit) {
     cache.delete(key);
     cache.set(key, hit);
     return { rate: hit.rate, chunks: (async function* () { yield hit.pcm; })() };
   }
+  if (provider === "speechify") {
+    try {
+      return remember(key, await speechifyStream(text, role, cancel));
+    } catch (e) {
+      if (cancel?.aborted) throw e;
+      // Out of credits, rate-limited or down: this line falls back to Gemini.
+      console.error(JSON.stringify({ event: "speechify_fallback", message: String(e).slice(0, 200) }));
+      return remember(`gemini|v3|${role}|${lang}|${text}`, await geminiStream(text, role, cancel));
+    }
+  }
+  return remember(key, await geminiStream(text, role, cancel));
+}
+
+/** Speechify streams raw 16-bit little-endian mono PCM (24 kHz) for Accept: audio/pcm. */
+async function speechifyStream(text: string, role: VoiceRole, cancel?: AbortSignal): Promise<SpeechStream> {
+  const timeout = AbortSignal.timeout(20_000);
+  const res = await fetch(`${process.env.SPEECHIFY_BASE_URL || "https://api.speechify.ai"}/v1/audio/stream`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${process.env.SPEECHIFY_API_KEY}`, "content-type": "application/json", accept: "audio/pcm" },
+    body: JSON.stringify({ input: text, voice_id: SPEECHIFY_VOICES[role], model: SPEECHIFY_MODEL, language: "en-US" }),
+    signal: cancel ? AbortSignal.any([timeout, cancel]) : timeout,
+  });
+  if (!res.ok || !res.body) throw new Error(`Speechify ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
+  const rate = Number(/rate=(\d+)/.exec(res.headers.get("content-type") ?? "")?.[1] ?? 24000);
+  const reader = res.body.getReader();
+  // Wait for the first audio here, so a failure can still fall back to Gemini.
+  const first = await reader.read();
+  if (first.done || !first.value?.length) throw new Error("Speechify sent no audio");
+  async function* chunks() {
+    yield Buffer.from(first.value!);
+    for (let r = await reader.read(); !r.done; r = await reader.read()) yield Buffer.from(r.value);
+  }
+  return { rate, chunks: chunks() };
+}
+
+async function geminiStream(text: string, role: VoiceRole, cancel?: AbortSignal): Promise<SpeechStream> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -76,17 +161,11 @@ export async function synthesizeStream(text: string, role: VoiceRole, lang: "en"
       }
       const rate = Number(/rate=(\d+)/.exec(first.mimeType ?? "")?.[1] ?? 24000);
       async function* chunks() {
-        const all: Buffer[] = [Buffer.from(first!.data!, "base64")];
-        yield all[0];
+        yield Buffer.from(first!.data!, "base64");
         for (let r = await it.next(); !r.done; r = await it.next()) {
           const d = audioOf(r)?.data;
-          if (!d) continue;
-          const b = Buffer.from(d, "base64");
-          all.push(b);
-          yield b;
+          if (d) yield Buffer.from(d, "base64");
         }
-        cache.set(key, { pcm: Buffer.concat(all), rate });
-        if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value!);
       }
       return { rate, chunks: chunks() };
     } catch (e) {

@@ -8,6 +8,7 @@ import { NeutralToneMapping } from "three";
 import { useShallow } from "zustand/react/shallow";
 import { useSim } from "@/lib/store";
 import { useMotion } from "@/lib/useMotion";
+import { useBuilder } from "@/lib/builder/store";
 import { WORLDS } from "@/lib/world/catalog";
 import { CameraRig } from "./camera";
 import { KeyboardNavigator } from "./keys";
@@ -109,6 +110,7 @@ function World({ animate }: { animate: boolean }) {
 }
 
 export default function SimuCanvas() {
+  const shopOpen = useBuilder((s) => s.open);
   const animate = useMotion();
   const setting = useSim((s) => s.settings.quality);
   // Phones and small GPUs start at medium; PerformanceMonitor adjusts from there.
@@ -122,6 +124,7 @@ export default function SimuCanvas() {
   return (
     <>
       <Canvas
+        frameloop={shopOpen ? "never" : "always"}
         className="simu-canvas"
         shadows={shadows}
         dpr={dpr}

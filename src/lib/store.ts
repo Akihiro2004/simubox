@@ -5,6 +5,7 @@ import { persist } from "zustand/middleware";
 import { GUIDE_ID, LIMITS, WORLDS, type Vec3, type WorldId } from "./world/catalog";
 import { initialObjects, objectKind, type Character, type SceneObject } from "./world/scene";
 import { livePosition } from "./world/runtime";
+import { mapSummaries, readMaps } from "./builder/maps";
 import { solveProjectile, type ProjectileResult } from "./engine/projectile";
 import { defaultModules, modulesSummary, type Modules } from "./modules";
 import type { Environment } from "./environment";
@@ -147,6 +148,14 @@ export interface SimState extends SceneData {
   menuOpen: boolean;
   settingsOpen: boolean;
   transcriptOpen: boolean;
+  /** Account card (shares the top-right card with settings). */
+  accountOpen: boolean;
+  /** Phones and the periodic table view: Simu's answer opened from its bar or pill. */
+  explanationOpen: boolean;
+  /** A guest used their free question: this one waits behind the sign-in card. */
+  signInGate: { question: string } | null;
+  /** Asked once the new account finishes the welcome (first sign-in). */
+  pendingQuestion: string | null;
   experimentId: string | null;
   experimentTitle: string | null;
   /** Composer text, so other UI (inspector, chips) can prefill it. */
@@ -242,6 +251,10 @@ export const useSim = create<SimState>()(
       menuOpen: false,
       settingsOpen: false,
       transcriptOpen: false,
+      accountOpen: false,
+      explanationOpen: false,
+      signInGate: null,
+      pendingQuestion: null,
       experimentId: null,
       experimentTitle: null,
       draft: "",
@@ -251,18 +264,23 @@ export const useSim = create<SimState>()(
 
       set: (p) => set(p),
       loadWorld: (w) =>
-        set((s) => ({
-          ...freshScene(w, s.worldNonce + 1),
-          selectedId: null,
-          speech: null,
-          question: null,
-          camera: { nonce: s.camera.nonce + 1, preset: "home" },
-        })),
+        set((s) => {
+          const layout = readMaps()[w];
+          return {
+            ...freshScene(w, s.worldNonce + 1),
+            ...(layout ? { objects: layout.objects } : {}),
+            selectedId: null,
+            speech: null,
+            question: null,
+            camera: { nonce: s.camera.nonce + 1, preset: "home" },
+          };
+        }),
       resetSimulation: () =>
         set((s) => {
           // Back to the world's starting layout, keeping spawned extras, the
           // projectile parameters and the current gravity setting.
           const base = freshScene(s.world);
+          base.objects = readMaps()[s.world]?.objects ?? base.objects;
           const objects: Record<string, SceneObject> = {};
           for (const o of Object.values(s.objects)) {
             const orig = base.objects[o.id];
@@ -339,6 +357,7 @@ export function snapshot(s: SimState): SceneSnapshot {
   const pr = projectileResult(s.projectile);
   return {
     world: s.world,
+    layouts: mapSummaries(),
     gravity: s.gravity.map(r2),
     capability: s.capability,
     projectile: s.projectile
@@ -360,6 +379,7 @@ export function snapshot(s: SimState): SceneSnapshot {
         label: o.label,
         position: (livePosition(o.id) ?? o.position).map(r2),
         physics: o.physics,
+        ...(o.learnerPlaced ? { learnerPlaced: true } : {}),
       })),
     characters: Object.values(s.characters).map((c) => ({ id: c.id, kind: c.kind, name: c.name })),
     selected: s.selectedId,

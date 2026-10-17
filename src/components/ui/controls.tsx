@@ -12,6 +12,7 @@ import { MODULE_DEFAULTS, type Modules } from "@/lib/modules";
 import { isValidExpression } from "@/lib/engine/expr";
 import { measureShape } from "@/lib/engine/geometry";
 import { PLACES, distanceKm } from "@/lib/engine/geo";
+import { Segmented, SwapIcon } from "./kit";
 import { CELL_KINDS, CELL_PARTS, ORGANELLES } from "@/lib/engine/biology";
 import { MATERIALS, SUBSTANCES, SUBSTANCE_IDS, phaseAt, type MaterialId, type SubstanceId } from "@/lib/engine/physics2";
 import { objectName } from "@/lib/world/scene";
@@ -47,17 +48,7 @@ function Slider({ label, value, min, max, step, display, sub, onChange, onCommit
   );
 }
 
-function Seg<T extends string | number>({ label, value, options, onChange, cols }: { label: string; value: T | null; options: readonly (readonly [T, string])[]; onChange: (v: T) => void; cols?: number }) {
-  return (
-    <div role="group" aria-label={label} className="seg grid gap-0.5" style={{ gridTemplateColumns: `repeat(${cols ?? options.length}, minmax(0, 1fr))` }}>
-      {options.map(([v, l]) => (
-        <button key={String(v)} type="button" aria-pressed={value === v} className="min-h-8 truncate px-1 text-[13px]" onClick={() => onChange(v)}>
-          {l}
-        </button>
-      ))}
-    </div>
-  );
-}
+const Seg = Segmented;
 
 function Caption({ children }: { children: React.ReactNode }) {
   return <p className="px-1 pb-1.5 pt-3 text-[13px] font-semibold text-ink-3">{children}</p>;
@@ -508,7 +499,9 @@ function MorphCard({ content }: { content: CardContent | null }) {
   if (!mounted || !c) return null;
   return (
     <div className="rail-item" data-closing={closing || undefined}>
-      <div className="min-h-0 overflow-hidden">
+      {/* The clip collapses the card when it closes; the padding (cancelled by
+          equal negative margins) leaves room for the glass's soft drop shadow. */}
+      <div className="-mx-8 -mb-12 -mt-3 min-h-0 overflow-hidden px-8 pb-12 pt-3">
         <section className="glass morph-card pointer-events-auto overflow-hidden rounded-[22px]" style={{ height: h }} aria-label={c.title}>
           <div ref={inner} className="scroll-thin max-h-[calc(100dvh-210px)] overflow-y-auto overflow-x-hidden p-3">
             <div key={c.key} className="morph-in">
@@ -756,7 +749,6 @@ function useSelection() {
 export function RightRail() {
   const paused = useSim((s) => s.paused);
   const set = useSim((s) => s.set);
-  const menuOpen = useSim((s) => s.menuOpen);
   // Server render starts closed; wide screens open it right after hydration.
   const desktop = useSyncExternalStore(subscribeWide, () => window.matchMedia(WIDE).matches, () => false);
   const tableCamera = useSim((s) => s.camera.preset === "periodic_table" ? s.camera.nonce : -1);
@@ -766,7 +758,8 @@ export function RightRail() {
   const controlsOpen = tableCamera !== -1 && !desktop && userOpen?.tableCamera !== tableCamera ? false : userOpen?.value ?? desktop;
   const mod = useControls();
   const selection = useSelection();
-  const showingSelection = Boolean(selection) && !menuOpen;
+  // The menu lives on the left, so a selected object's card can show beside it.
+  const showingSelection = Boolean(selection);
 
   const content: CardContent | null = showingSelection
     ? {
@@ -788,7 +781,7 @@ export function RightRail() {
           footer: (
             <>
               <Tool label={paused ? "Play" : "Pause"} onClick={() => set({ paused: !paused })}>
-                {paused ? <Play size={18} /> : <Pause size={18} />}
+                <SwapIcon id={paused ? "play" : "pause"}>{paused ? <Play size={18} /> : <Pause size={18} />}</SwapIcon>
               </Tool>
               <Tool label="Reset" onClick={() => execNow({ op: "reset_simulation" })}>
                 <RotateCcw size={18} />

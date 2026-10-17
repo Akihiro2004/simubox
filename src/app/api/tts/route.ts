@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { aiConfigured, isQuotaError } from "@/lib/ai/director";
-import { MAX_TTS_CHARS, synthesizeStream, VOICES, type VoiceRole } from "@/lib/ai/tts";
+import { MAX_TTS_CHARS, speechifyConfigured, synthesizeStream, VOICES, type VoiceRole } from "@/lib/ai/tts";
 import { clientIp, rateLimit, verifyUser } from "@/lib/server/guard";
 
 const Body = z.object({
@@ -10,7 +10,7 @@ const Body = z.object({
 });
 
 export async function POST(req: Request) {
-  if (!aiConfigured()) return Response.json({ error: "Voice needs the AI, which isn't connected here.", code: "ai_unconfigured" }, { status: 503 });
+  if (!aiConfigured() && !speechifyConfigured()) return Response.json({ error: "Voice needs the AI, which isn't connected here.", code: "ai_unconfigured" }, { status: 503 });
   let body: unknown;
   try {
     body = await req.json();

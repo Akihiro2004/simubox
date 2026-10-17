@@ -6,6 +6,8 @@ import type { MaterialId } from "../engine/physics2";
 
 interface ObjectBase {
   id: string;
+  /** Authored by the learner; survives saves and is visible in AI context. */
+  learnerPlaced?: boolean;
   position: Vec3;
   /** Degrees around x, y, z. */
   rotation: Vec3;
@@ -103,13 +105,15 @@ export function initialObjects(world: WorldId): SceneObject[] {
         assetObject("desk", "desk", [-2.9, .38, 0]),
         assetObject("chair", "chair", [-1.95, .5, .3]),
         assetObject("bookcase", "bookcase", [-2.85, .9, -3.68]),
-        assetObject("bedside_cabinet", "nightstand", [3.05, .33, -2.2]),
-        assetObject("bedside_lamp", "desk_lamp", [3.05, .84, -2.2], { color: "#bd9361" }),
+        // Beside the headboard, against the back wall, like a real bedside table.
+        assetObject("bedside_cabinet", "nightstand", [3.05, .33, -3.4]),
+        assetObject("bedside_lamp", "desk_lamp", [3.05, .84, -3.4], { color: "#bd9361" }),
         assetObject("shelf_rocket", "rocket_toy", [-2.8, 2.05, -3.65], { color: "#f1e4ce" }),
         assetObject("shelf_plant", "plant", [-3.23, 2.045, -3.65], { scale: .7, color: "#7e9563" }),
         assetObject("toy_basket", "storage_box", [-3, .215, 2.3]),
         assetObject("reading_stool", "stool", [-2.1, .3, 2.2]),
-        assetObject("bedside_plant", "plant", [3.35, .525, -3.35], { scale: 1.5 }),
+        // On the other side of the headboard, between the bed and the bookcase.
+        assetObject("bedside_plant", "plant", [.05, .525, -3.4], { scale: 1.5 }),
         assetObject("door_plant", "plant", [-3.5, .42, 3.4], { scale: 1.2 }),
         assetObject("desk_globe", "planet", [-3.15, 1.04, .65], { scale: .6 }),
         assetObject("reading_lamp", "desk_lamp", [-3.1, 1.01, -.65]),

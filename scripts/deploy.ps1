@@ -67,6 +67,12 @@ if ($deepseek) {
   Set-Secret "deepseek-api-key" $deepseek
   $secrets += "DEEPSEEK_API_KEY=deepseek-api-key:latest"
 }
+# Optional: Speechify voices English lines (see .env.example).
+$speechify = Get-Key "SPEECHIFY_API_KEY"
+if ($speechify) {
+  Set-Secret "speechify-api-key" $speechify
+  $secrets += "SPEECHIFY_API_KEY=speechify-api-key:latest"
+}
 $secretArgs = if ($secrets.Count) { @("--set-secrets", ($secrets -join ",")) } else { @() }
 if ($FirebaseApiKey) {
   $fbProject = if ($FirebaseProjectId) { $FirebaseProjectId } else { $Project }

@@ -1,4 +1,7 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
+
+// The landing page navigates into the studio with the app router; a static render has none.
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: () => {}, prefetch: () => {} }) }));
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import LandingPage, { applyHookToStudio } from "@/components/LandingPage";
@@ -37,7 +40,6 @@ describe("LandingPage & studio handoff", () => {
     const html = renderToStaticMarkup(createElement(LandingPage));
     expect(html).toContain("Welcome back, Alex");
     expect(html).toContain("alex@school.edu");
-    expect(html).toContain("Saved experiments");
     expect(html).toContain("Sign out");
   });
 

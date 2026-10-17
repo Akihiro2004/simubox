@@ -3,6 +3,7 @@
 
 import { FURNITURE } from "./furnishings";
 import { NATURE_ASSETS } from "./nature";
+import { LEARNING_ASSETS } from "./learning-assets";
 
 export type Vec3 = [number, number, number];
 
@@ -125,6 +126,7 @@ export interface AssetDef {
 // in this repo (see components/world/assets). No third-party files.
 const A = (a: AssetDef) => a;
 export const ASSETS = {
+  ...LEARNING_ASSETS,
   ...FURNITURE,
   ...NATURE_ASSETS,
   ball_red: A({ id: "ball_red", name: "Red ball", size: [0.3, 0.3, 0.3], collider: "ball", massKg: 0.4, defaultPhysics: "dynamic", color: "#ef4444", tags: ["ball", "toy"], bounciness: 0.7 }),

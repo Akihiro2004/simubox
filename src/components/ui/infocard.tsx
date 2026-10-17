@@ -1,14 +1,16 @@
 "use client";
 
 import { X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useSim, type InfoCard } from "@/lib/store";
+import { rise, spring } from "@/lib/motion";
 import { resolvePlaceholder } from "@/lib/player";
 import { fillPlaceholders } from "@/lib/ssp/validate";
 
 const TONE: Record<InfoCard["tone"], string> = { info: "var(--dot-info)", fact: "var(--dot-fact)", warning: "var(--dot-warning)", question: "var(--dot-question)" };
 
 /** One info card, in the same design as the controls card. */
-export function InfoCardView({ card: raw, compact = false }: { card: InfoCard; compact?: boolean }) {
+export function InfoCardView({ card: raw, compact = false, pop = true }: { card: InfoCard; compact?: boolean; pop?: boolean }) {
   const set = useSim((s) => s.set);
   // Re-render on simulation changes so engine numbers stay current.
   useSim((s) => s.modules);
@@ -18,7 +20,7 @@ export function InfoCardView({ card: raw, compact = false }: { card: InfoCard; c
   const fill = (t: string) => fillPlaceholders(t, resolvePlaceholder);
   const card = { ...raw, title: fill(raw.title), subtitle: raw.subtitle && fill(raw.subtitle), rows: raw.rows.map((r) => ({ label: fill(r.label), value: fill(r.value) })), bullets: raw.bullets.map(fill) };
   return (
-    <section className={`glass pop pointer-events-auto rounded-[22px] p-3 ${compact ? "w-[260px]" : "w-[min(360px,calc(100vw-24px))]"}`} aria-label={card.title}>
+    <section className={`glass ${pop ? "pop" : ""} pointer-events-auto rounded-[22px] p-3 ${compact ? "w-[260px]" : "w-[min(360px,calc(100vw-24px))]"}`} aria-label={card.title}>
       <div className="flex items-start gap-2 pb-2 pl-1">
         <span className="mt-[7px] h-2 w-2 shrink-0 rounded-full" style={{ background: TONE[card.tone] }} />
         <div className="min-w-0 flex-1">
@@ -57,12 +59,15 @@ export function InfoCardView({ card: raw, compact = false }: { card: InfoCard; c
 export function CenterCards() {
   const cards = useSim((s) => s.cards);
   const center = cards.filter((c) => c.placement === "center").slice(-2);
-  if (!center.length) return null;
   return (
     <div className="pointer-events-none fixed inset-x-0 top-[20vh] z-30 flex flex-wrap items-start justify-center gap-3 px-3">
-      {center.map((c) => (
-        <InfoCardView key={c.id} card={c} />
-      ))}
+      <AnimatePresence mode="popLayout">
+        {center.map((c) => (
+          <motion.div key={c.id} layout {...rise} initial={{ opacity: 0, y: 24, scale: 0.92, filter: "blur(8px)" }} animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }} transition={spring.bouncy}>
+            <InfoCardView card={c} pop={false} />
+          </motion.div>
+        ))}
+      </AnimatePresence>
     </div>
   );
 }

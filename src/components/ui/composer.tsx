@@ -1,9 +1,12 @@
 "use client";
 
 import { ArrowUp, Check, ChevronUp, LoaderCircle, Plus, Square, X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { ask, stopAsking } from "@/lib/ask";
 import { useSim } from "@/lib/store";
+import { popover, rise, spring, swap } from "@/lib/motion";
+import { SwapIcon } from "./kit";
 import { LIMITS } from "@/lib/world/catalog";
 import { idToken } from "@/lib/firebase";
 
@@ -47,35 +50,50 @@ function useElapsed(since: number) {
 /** What Simu is doing right now: Gemini's thought summaries and the lesson steps as they're written. */
 function ThinkingPanel({ t }: { t: Thinking }) {
   const secs = useElapsed(t.startedAt);
+  const row = { initial: { opacity: 0, height: 0 }, animate: { opacity: 1, height: "auto" }, transition: spring.layout } as const;
   return (
-    <section id="thinking-panel" className="glass sheet pointer-events-auto max-h-[42dvh] w-full max-w-[680px] overflow-y-auto rounded-[22px] p-3" aria-live="polite" aria-label="What Simu is doing">
+    <motion.section {...popover("bottom center", "bottom")} id="thinking-panel" className="glass pointer-events-auto max-h-[42dvh] w-full max-w-[680px] overflow-y-auto rounded-[22px] p-3" aria-live="polite" aria-label="What Simu is doing">
       <div className="flex items-baseline justify-between px-1 pb-2">
         <h2 className="text-[15px] font-extrabold">Simu is planning your lesson</h2>
         <span className="text-[13px] font-semibold tabular-nums text-ink-3">{secs}s</span>
       </div>
       {t.thoughts.length > 0 && (
-        <div className="group-rows mb-2">
-          {t.thoughts.map((th, i) => (
-            <div key={i} className="px-3.5 py-2.5">
-              <p className="text-[14px] font-bold">{th.title}</p>
-              <p className="line-clamp-3 text-[13px] font-semibold leading-snug text-ink-3">{th.text.replace(/\*\*.+?\*\*\s*/, "")}</p>
-            </div>
-          ))}
+        <div className="group-rows mb-2 overflow-hidden">
+          <AnimatePresence initial={false}>
+            {t.thoughts.map((th, i) => (
+              <motion.div key={i} {...row} className="overflow-hidden">
+                <div className="px-3.5 py-2.5">
+                  <p className="text-[14px] font-bold">{th.title}</p>
+                  <p className="line-clamp-3 text-[13px] font-semibold leading-snug text-ink-3">{th.text.replace(/\*\*.+?\*\*\s*/, "")}</p>
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
       )}
-      <div className="group-rows">
-        {t.steps.map((step, i) => (
-          <div key={i} className="flex items-center gap-2.5 px-3.5 py-2.5 text-[14px] font-semibold">
-            <Check size={15} className="shrink-0 text-[#30a46c]" />
-            {step}
-          </div>
-        ))}
+      <div className="group-rows overflow-hidden">
+        <AnimatePresence initial={false}>
+          {t.steps.map((step, i) => (
+            <motion.div key={i} {...row} className="overflow-hidden">
+              <div className="flex items-center gap-2.5 px-3.5 py-2.5 text-[14px] font-semibold">
+                <motion.span initial={{ scale: 0, rotate: -90 }} animate={{ scale: 1, rotate: 0 }} transition={spring.bouncy} className="grid shrink-0">
+                  <Check size={15} className="text-[#30a46c]" />
+                </motion.span>
+                {step}
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
         <div className="flex items-center gap-2.5 px-3.5 py-2.5 text-[14px] font-semibold text-ink-3">
           <LoaderCircle size={15} className="shrink-0 animate-spin" />
-          {t.status}
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.span key={t.status} {...swap}>
+              {t.status}
+            </motion.span>
+          </AnimatePresence>
         </div>
       </div>
-    </section>
+    </motion.section>
   );
 }
 
@@ -138,17 +156,34 @@ export function Composer() {
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex flex-col items-center gap-2 px-3 pb-[max(14px,env(safe-area-inset-bottom))] sm:pb-7">
-      {status === "thinking" && showThinking && thinking && <ThinkingPanel t={thinking} />}
-      {notice && (
-        <p className="glass pop pointer-events-auto flex max-w-[640px] items-center gap-2 rounded-2xl py-2 pl-4 pr-2 text-[14px] font-semibold text-ink-2" role="status">
-          {notice}
-          <button className="btn btn-quiet grid h-7 w-7 shrink-0 place-items-center rounded-full" aria-label="Dismiss" onClick={() => setNotice(null)}>
-            <X size={15} />
-          </button>
-        </p>
-      )}
+      <AnimatePresence>{status === "thinking" && showThinking && thinking && <ThinkingPanel key="thinking" t={thinking} />}</AnimatePresence>
+      <AnimatePresence>
+        {notice && (
+          <motion.p key={notice} {...rise} className="glass pointer-events-auto flex max-w-[640px] items-center gap-2 rounded-2xl py-2 pl-4 pr-2 text-[14px] font-semibold text-ink-2" role="status">
+            {notice}
+            <button className="btn btn-quiet grid h-7 w-7 shrink-0 place-items-center rounded-full" aria-label="Dismiss" onClick={() => setNotice(null)}>
+              <X size={15} />
+            </button>
+          </motion.p>
+        )}
+      </AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0, y: 24, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ ...spring.smooth, delay: 0.25 }}
+        className="relative w-full max-w-[680px]"
+      >
+        {/* Light running around the edge while Simu thinks; it glows through the glass. */}
+        <AnimatePresence>
+          {status === "thinking" && (
+            <motion.span key="glow" aria-hidden initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, transition: { duration: 0.5 } }} transition={{ duration: 0.4 }} className="pointer-events-none absolute -inset-[3px] rounded-[31px]">
+              <span className="ai-glow-halo absolute inset-0" />
+              <span className="ai-glow absolute inset-0" />
+            </motion.span>
+          )}
+        </AnimatePresence>
       <form
-        className="glass pointer-events-auto flex w-full max-w-[680px] items-end gap-1 rounded-[28px] p-1.5"
+        className="glass composer pointer-events-auto relative flex w-full items-end gap-1 rounded-[28px] p-1.5"
         onSubmit={(e) => {
           e.preventDefault();
           submit();
@@ -156,22 +191,40 @@ export function Composer() {
       >
         <input ref={file} type="file" accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown" className="hidden" onChange={(e) => e.target.files?.[0] && void upload(e.target.files[0])} />
         <button type="button" className="btn btn-quiet grid h-11 w-11 shrink-0 place-items-center rounded-full text-ink-2" aria-label="Add a lesson file (PDF or text)" title="Add a lesson file (PDF or text)" disabled={uploading || busy} onClick={() => file.current?.click()}>
-          {uploading ? <LoaderCircle size={20} className="animate-spin" /> : <Plus size={22} strokeWidth={2} />}
+          <SwapIcon id={uploading ? "up" : "plus"}>{uploading ? <LoaderCircle size={20} className="animate-spin" /> : <Plus size={22} strokeWidth={2} />}</SwapIcon>
         </button>
 
         <div className="relative min-w-0 flex-1">
           {status === "thinking" ? (
             <button type="button" className="flex w-full min-w-0 items-center gap-1.5 py-[11px] text-left" aria-expanded={showThinking} aria-controls="thinking-panel" onClick={() => setShowThinking(!showThinking)}>
-              <span className="thinking truncate text-[16px] font-bold leading-[22px] sm:text-[17px]">{thinking?.status ?? "Simu is thinking"}…</span>
-              <ChevronUp size={17} className={`shrink-0 text-ink-3 transition-transform duration-300 ${showThinking ? "" : "rotate-180"}`} />
+              <span className="relative min-w-0 overflow-hidden">
+                <AnimatePresence mode="popLayout" initial={false}>
+                  <motion.span key={thinking?.status ?? ""} {...swap} className="thinking block truncate text-[16px] font-bold leading-[22px] sm:text-[17px]">
+                    {thinking?.status ?? "Simu is thinking"}…
+                  </motion.span>
+                </AnimatePresence>
+              </span>
+              <motion.span animate={{ rotate: showThinking ? 0 : 180 }} transition={spring.snappy} className="grid shrink-0 text-ink-3">
+                <ChevronUp size={17} />
+              </motion.span>
             </button>
           ) : (
             <>
-              {!draft && (
-                <span key={hint.key} aria-hidden className="fade pointer-events-none absolute inset-x-0 top-0 truncate py-[11px] text-[16px] font-semibold leading-[22px] text-ink-3 sm:text-[17px]">
-                  {hint.text}
-                </span>
-              )}
+              <AnimatePresence initial={false} mode="wait">
+                {!draft && (
+                  <motion.span
+                    key={hint.key}
+                    aria-hidden
+                    initial={{ opacity: 0, y: 10, filter: "blur(4px)" }}
+                    animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                    exit={{ opacity: 0, y: -10, filter: "blur(4px)", transition: { duration: 0.22 } }}
+                    transition={spring.smooth}
+                    className="pointer-events-none absolute inset-x-0 top-0 truncate py-[11px] text-[16px] font-semibold leading-[22px] text-ink-3 sm:text-[17px]"
+                  >
+                    {hint.text}
+                  </motion.span>
+                )}
+              </AnimatePresence>
               <textarea
                 id="prompt"
                 ref={area}
@@ -195,16 +248,18 @@ export function Composer() {
           )}
         </div>
 
-        {busy ? (
-          <button type="button" className="btn btn-ink grid h-11 w-11 shrink-0 place-items-center rounded-full" aria-label="Stop" onClick={stopAsking}>
-            <Square size={14} fill="currentColor" />
-          </button>
-        ) : (
-          <button type="submit" className="btn btn-accent grid h-11 w-11 shrink-0 place-items-center rounded-full" aria-label="Send" disabled={!draft.trim()}>
-            <ArrowUp size={22} strokeWidth={2.6} />
-          </button>
-        )}
+        {/* One button that turns from Send into Stop (and back) instead of swapping elements. */}
+        <button
+          type={busy ? "button" : "submit"}
+          className={`btn grid h-11 w-11 shrink-0 place-items-center rounded-full ${busy ? "btn-ink" : "btn-accent"}`}
+          aria-label={busy ? "Stop" : "Send"}
+          disabled={!busy && !draft.trim()}
+          onClick={busy ? (e) => (e.preventDefault(), stopAsking()) : undefined}
+        >
+          <SwapIcon id={busy ? "stop" : "send"}>{busy ? <Square size={14} fill="currentColor" /> : <ArrowUp size={22} strokeWidth={2.6} />}</SwapIcon>
+        </button>
       </form>
+      </motion.div>
     </div>
   );
 }
