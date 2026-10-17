@@ -179,10 +179,11 @@ export function GlobeMap() {
 export function WorkshopInterior() {
   const wave = useSim(s => Boolean(s.modules.wave));
   const lever = useSim(s => Boolean(s.modules.lever));
-  const x = wave || lever ? 0 : -1.2;
-  const z = wave ? .4 : lever ? .6 : 1.1;
-  const w = wave ? 6.3 : lever ? 5.8 : 4.45;
-  const d = wave ? 3.2 : lever ? 2.2 : 3.05;
+  const ripple = useSim(s => Boolean(s.modules.ripple));
+  const x = wave || lever || ripple ? 0 : -1.2;
+  const z = ripple ? .35 : wave ? .4 : lever ? .6 : 1.1;
+  const w = ripple ? 3.9 : wave ? 6.3 : lever ? 5.8 : 4.45;
+  const d = ripple ? 2.7 : wave ? 3.2 : lever ? 2.2 : 3.05;
   return <>
     <OakFloor />
     <RoundedBox args={[w, .014, d]} radius={.06} position={[x, .014, z]} receiveShadow>

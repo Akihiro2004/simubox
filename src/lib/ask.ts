@@ -4,8 +4,9 @@ import { pickFixture } from "./ai/fixtures";
 import { safePlan, looksIndonesian } from "./ai/guard";
 import { idToken, initFirebase, useAuth } from "./firebase";
 import { countGuestQuestion, guestQuestionsUsed, mustSignIn } from "./guest";
-import { cancelPlayback, finishPlan, runPlan } from "./player";
+import { cancelPlayback, finishPlan, resolvePlaceholder, runPlan } from "./player";
 import { ScenePlan, Step } from "./ssp/schema";
+import { fillProse } from "./ssp/validate";
 import { snapshot, useSim } from "./store";
 import { LIMITS } from "./world/catalog";
 
@@ -102,7 +103,7 @@ export async function ask(raw: string) {
   const history = s.messages
     .filter((m) => !m.speech)
     .slice(-8)
-    .map((m) => ({ role: m.role, text: m.text.slice(0, 1200) }));
+    .map((m) => ({ role: m.role, text: (m.role === "assistant" ? fillProse(m.text, resolvePlaceholder, true) : m.text).slice(0, 1200) }));
   s.addMessage("user", prompt);
   // The raw question until Gemini sums it up.
   s.set({ topic: prompt });

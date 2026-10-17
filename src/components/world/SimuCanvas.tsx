@@ -24,6 +24,8 @@ import { GlobeModule } from "./modules/globe";
 import { MathModule } from "./modules/math";
 import { WorkshopModules } from "./modules/workshop";
 import { CellModule, ParticlesModule } from "./modules/lab";
+import { SignalModule } from "./modules/signal";
+import { OpticsModule } from "./modules/optics";
 
 /** Science modules render themselves only when their state is active. */
 function ModuleScenes({ animate }: { animate: boolean }) {
@@ -35,6 +37,8 @@ function ModuleScenes({ animate }: { animate: boolean }) {
       <WorkshopModules animate={animate} />
       <ParticlesModule animate={animate} />
       <CellModule animate={animate} />
+      <SignalModule animate={animate} />
+      <OpticsModule />
     </>
   );
 }
@@ -59,17 +63,20 @@ function Lights({ shadows, mapSize }: { shadows: boolean; mapSize: number }) {
   const light = useSim((s) => s.environment?.light ?? "day");
   const court = world === "court";
   const space = world === "space";
-  const indoor = world === "bedroom" || world === "lab" || world === "workshop";
+  const opticsLighting = useSim((s) => s.modules.optics?.lighting);
+  const dark = world === "optics";
+  const indoor = world === "bedroom" || world === "lab" || world === "workshop" || dark;
   const t = WORLDS[world].camera.target;
   const mood = light === "day" ? null : MOOD[light];
+  const dim = dark && !mood ? opticsLighting === "dim" ? 0.48 : 0.88 : 1;
   return (
     <>
       {/* soft studio daylight: bright sky fill, one warm key light (or the restyled mood) */}
-      <hemisphereLight args={mood ? [mood.sky, mood.ground, mood.hemi] : [space ? "#a6bce5" : "#f6f8ff", indoor ? "#b9a78b" : "#a4b5b1", space ? .55 : .85]} />
-      <ambientLight intensity={mood ? mood.ambient : space ? .12 : .2} color="#ffffff" />
+      <hemisphereLight args={mood ? [mood.sky, mood.ground, mood.hemi] : [space ? "#a6bce5" : dark ? "#b8c6e0" : "#f6f8ff", indoor ? "#b9a78b" : "#a4b5b1", (space ? .55 : .85) * dim]} />
+      <ambientLight intensity={(mood ? mood.ambient : space ? .12 : .2) * dim} color="#ffffff" />
       <directionalLight
         position={[t[0] + 7, 13, t[2] + 6]}
-        intensity={mood ? mood.sunI : space ? 1.5 : court ? 2.6 : 3.1}
+        intensity={(mood ? mood.sunI : space ? 1.5 : court ? 2.6 : 3.1) * dim}
         color={mood ? mood.sun : space ? "#c2d6ff" : "#fff0d8"}
         castShadow={shadows}
         shadow-mapSize={[mapSize, mapSize]}
@@ -83,7 +90,7 @@ function Lights({ shadows, mapSize }: { shadows: boolean; mapSize: number }) {
       >
         <object3D attach="target" position={t} />
       </directionalLight>
-      <directionalLight position={[-8, 5, -3]} intensity={mood ? mood.fill : space ? .75 : .55} color="#d5e5ed" />
+      <directionalLight position={[-8, 5, -3]} intensity={(mood ? mood.fill : space ? .75 : .55) * dim} color="#d5e5ed" />
     </>
   );
 }

@@ -8,6 +8,7 @@ import { RevealText } from "./kit";
 import { useSim } from "@/lib/store";
 import { cascade, popover, rise, spring, swap } from "@/lib/motion";
 import { answerQuestion, placeholderValues, replay, resolvePlaceholder, skipSpeech } from "@/lib/player";
+import { fillProse } from "@/lib/ssp/validate";
 import { MOLECULES } from "@/lib/engine/chemistry";
 
 /** Tiny Simu face, used wherever the guide "speaks" in the interface. */
@@ -51,12 +52,18 @@ export function useExplanationShown(desktop: boolean): boolean {
 
 /** Simu's answer: lives in the left card that also becomes the menu and the conversation. */
 export function ExplanationContent() {
-  const ex = useSim((s) => s.explanation);
+  const raw = useSim((s) => s.explanation);
   const readingTable = useSim((s) => s.world === "lab" && s.camera.preset === "periodic_table");
   const formula = useSim((s) => s.formula);
   const hasPlan = useSim((s) => Boolean(s.lastPlan));
   const set = useSim((s) => s.set);
   const [more, setMore] = useState(false);
+  // Engine numbers in the reply follow the simulation while the lesson plays.
+  useSim((s) => s.modules);
+  useSim((s) => s.objects);
+  useSim((s) => s.gravity);
+  useSim((s) => s.projectile);
+  const ex = raw && { ...raw, reply: fillProse(raw.reply, resolvePlaceholder), details: raw.details && fillProse(raw.details, resolvePlaceholder) };
 
   const body = ex && (
     <motion.div variants={cascade.parent} initial="hidden" animate="show">
@@ -285,6 +292,9 @@ function Question({ q }: { q: NonNullable<ReturnType<typeof useSim.getState>["qu
 }
 
 const METRIC_LABEL: Record<string, string> = {
+  beam_wavelength: "wavelength", screen_power: "captured light", reflectance: "surface reflection",
+  incidence_angle: "incidence angle", refraction_angle: "refraction angle", critical_angle: "critical angle", refractive_index: "refractive index",
+  reflection_angle: "reflection angle", image_distance: "image distance", magnification: "magnification", deviation: "beam deviation",
   range: "lands at", flight_time: "in the air", max_height: "highest point", impact_speed: "landing speed", gravity: "gravity", bond_angle: "bond angle",
   current: "current", total_resistance: "resistance", power: "power", wave_speed: "wave speed", torque_left: "left turning effect", torque_right: "right turning effect",
   phase: "state", rms_speed: "particle speed", day: "orbit day", season: "season", moon_phase: "Moon", volume: "volume", surface_area: "surface area", float_fraction: "under water",

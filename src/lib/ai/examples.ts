@@ -173,4 +173,50 @@ export const EXAMPLES: { prompt: string; world: string; plan: ScenePlan }[] = [
       followUps: ["What if I triple the sides?", "What about the surface area?", "Show me a sphere's volume"],
     },
   },
+  {
+    prompt: "How does light reflect off a mirror?",
+    world: "optics",
+    plan: {
+      ...base,
+      title: "Bouncing light off a mirror",
+      question: "How does light reflect off a mirror?",
+      subject: "physics",
+      supportLevel: "simulated",
+      capability: "light",
+      reply: "Light bounces off a mirror at the same angle it arrives: the angle of incidence equals the angle of reflection, both measured from the normal.",
+      details: "The normal is an imaginary line at right angles to the mirror where the light hits. A smooth mirror reflects every ray this way, which is why it shows a clear image; a rough surface scatters light in all directions.",
+      steps: [
+        {
+          title: "Hook",
+          commands: [
+            { op: "show_optics", preset: "reflection", angleDeg: 30 },
+            { op: "speak", speaker: "simu", text: "Here is a laser and a flat mirror. Watch the red beam hit it.", emotion: "curious" },
+            { op: "ask_question", question: "If the laser hits the mirror at a bigger angle, the bounce...", choices: ["Gets a bigger angle too", "Stays the same", "Goes straight back"], answerIndex: 0, explanation: "The bounce copies the incoming angle, so a bigger angle in means a bigger angle out." },
+          ],
+        },
+        {
+          title: "Show",
+          commands: [
+            { op: "speak", speaker: "simu", text: "The dashed line is the normal. The beam comes in at {{incidence_angle}} from it.", emotion: "calm" },
+            { op: "show_measurement", metric: "reflection_angle" },
+            { op: "speak", speaker: "simu", text: "And it leaves at {{reflection_angle}}. The same angle!", emotion: "excited" },
+            { op: "speak", speaker: "simu", text: "Now I'll turn the laser so it hits the mirror more steeply.", emotion: "excited" },
+            { op: "set_module", module: "optics", set: { angleDeg: 55 } },
+            { op: "wait", ms: 900 },
+            { op: "speak", speaker: "simu", text: "In at {{incidence_angle}}, out at {{reflection_angle}}. It copies the angle every time.", emotion: "happy" },
+          ],
+        },
+        {
+          title: "Explain",
+          commands: [
+            { op: "show_card", id: "law_of_reflection", title: "Law of reflection", rows: [{ label: "Angle in", value: "{{incidence_angle}}" }, { label: "Angle out", value: "{{reflection_angle}}" }], bullets: ["Both angles are measured from the normal", "Smooth mirrors reflect every ray this way"], placement: "center", tone: "fact" },
+            { op: "speak", speaker: "simu", text: "Your turn: drag the beam angle slider and try to break the rule!", emotion: "happy" },
+          ],
+        },
+      ],
+      assumptions: ["A perfectly flat, smooth mirror"],
+      limitations: ["Real mirrors absorb a little of the light"],
+      followUps: ["Why does a straw look bent in water?", "How does a periscope work?", "Why does a prism make a rainbow?"],
+    },
+  },
 ];

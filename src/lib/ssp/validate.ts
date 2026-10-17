@@ -5,10 +5,11 @@
 import { GUIDE_ID, LIMITS, type WorldId } from "../world/catalog";
 import { initialObjects } from "../world/scene";
 import { PROJECTILE_LIMITS, toMetersPerSecond } from "../engine/projectile";
-import { ARG_PLACEHOLDERS, Command, LoosePlan, MODULE_FIELDS, PLACEHOLDERS, ScenePlan, type ModuleName, type PlanIssue, type SceneSnapshot } from "./schema";
+import { ARG_PLACEHOLDERS, Command, LoosePlan, MODULE_FIELDS, OPTIC_ARG_PLACEHOLDERS, PLACEHOLDERS, ScenePlan, type ModuleName, type PlanIssue, type SceneSnapshot } from "./schema";
 import { PLANET_IDS } from "../engine/astro";
 import { PLACE_IDS } from "../engine/geo";
 import { isValidExpression } from "../engine/expr";
+import { MAX_OPTICS, opticsPreset, presetIds, type OpticKind } from "../engine/optics";
 
 export type ValidationResult =
   | { ok: true; plan: ScenePlan; issues: PlanIssue[] }
@@ -28,13 +29,18 @@ const MODULE_WORLD: Partial<Record<Command["op"], WorldId>> = {
   build_circuit: "workshop",
   build_lever: "workshop",
   show_wave: "workshop",
+  show_ripple_tank: "workshop",
+  show_signal: "stage",
+  show_optics: "optics",
+  place_optic: "optics",
+  remove_optic: "optics",
   show_globe: "globe",
   mark_place: "globe",
   connect_places: "globe",
 };
 
 /** Home world of each module that set_module can change. */
-const MODULE_HOME: Record<ModuleName, WorldId> = { orbits: "space", fluid: "ocean", circuit: "workshop", wave: "workshop", lever: "workshop", particles: "lab", cell: "lab", globe: "globe" };
+const MODULE_HOME: Record<ModuleName, WorldId> = { orbits: "space", fluid: "ocean", circuit: "workshop", wave: "workshop", lever: "workshop", particles: "lab", cell: "lab", globe: "globe", ripple: "workshop", signal: "stage", optics: "optics" };
 
 /** Gravity a command sets (m/s², positive), if any. */
 function gravityOf(c: Command): number | undefined {
@@ -66,7 +72,35 @@ function matchEnvironment(steps: { title: string; commands: Command[] }[], curre
   first.splice(at < 0 ? first.length : at, 0, { op: "set_environment", preset: place });
 }
 
-export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | "objects" | "characters"> & { environment?: Record<string, unknown>; layouts?: SceneSnapshot["layouts"] }): ValidationResult {
+/** Splits prose into sentences (per line, so line breaks survive) and keeps the ones `ok` accepts. */
+function keepSentences(text: string, ok: (sentence: string) => boolean): string {
+  const lines = text.split("\n").map((line) => line.split(/(?<=[.!?])\s+/));
+  if (lines.every((line) => line.every(ok))) return text;
+  return lines
+    .map((line) => line.filter(ok).join(" "))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
+ * Fills placeholders in prose (Simu's reply, details, the transcript). While a
+ * lesson plays, a value the scene doesn't know yet shows as "…" (a place it
+ * marks later, for example). With `final`, a sentence whose value never became
+ * known is left out, so the student never reads "{{…}}" or "?".
+ */
+export function fillProse(text: string, resolve: (name: string, arg?: string) => string | undefined, final = false): string {
+  if (!text.includes("{{")) return text;
+  if (!final) return fillPlaceholders(text, (name, arg) => resolve(name, arg) ?? "…");
+  const known = (sentence: string) => [...sentence.matchAll(PLACEHOLDER_RE)].every((m) => resolve(m[1], m[2]) !== undefined);
+  return fillPlaceholders(keepSentences(text, known), resolve);
+}
+
+/**
+ * `partial`: a prefix of a streamed plan. Later steps may still create the
+ * ids its reply refers to, so the reply is only checked once the plan is whole.
+ */
+export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | "objects" | "characters"> & Partial<Pick<SceneSnapshot, "gravity" | "projectile">> & { environment?: Record<string, unknown>; layouts?: SceneSnapshot["layouts"]; modules?: Record<string, unknown> }, opts: { partial?: boolean } = {}): ValidationResult {
   const env = LoosePlan.safeParse(raw);
   if (!env.success) {
     return { ok: false, error: env.error.issues.slice(0, 6).map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") };
@@ -75,8 +109,17 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
   const objects = new Set(scene.objects.map((o) => o.id));
   const characters = new Set([GUIDE_ID, ...scene.characters.map((c) => c.id)]);
   let world: WorldId = scene.world;
+  let downwardGravity = scene.world === "court" && scene.projectile ? scene.projectile.gravity : Math.max(0, -(scene.gravity?.[1] ?? -9.81));
   let total = 0;
   const marks = new Set<string>();
+  // Elements on the Light Lab's optics table (it opens with the reflection setup).
+  const sceneOptics = (scene.modules?.optics as { elements?: { id?: unknown; kind?: OpticKind }[] } | undefined)?.elements;
+  const optics = new Set<string>(scene.world !== "optics" ? [] : Array.isArray(sceneOptics) ? sceneOptics.map((e) => String(e?.id)) : presetIds("reflection"));
+  const opticKinds = new Map<string, OpticKind | undefined>(scene.world !== "optics" ? [] : Array.isArray(sceneOptics) ? sceneOptics.map((e) => [String(e.id), e.kind]) : [["mirror", "plane_mirror"]]);
+  // Every id that exists at some point of the lesson: the reply may mention any of them.
+  const everObjects = new Set(objects);
+  const everMarks = new Set<string>();
+  const everOptics = new Set(optics);
   const resetTo = (w: WorldId) => {
     objects.clear();
     const layout = scene.layouts?.find(map => map.world === w);
@@ -85,9 +128,14 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
     characters.clear();
     characters.add(GUIDE_ID);
     marks.clear();
+    optics.clear();
+    opticKinds.clear();
+    if (w === "optics") { optics.add("mirror"); opticKinds.set("mirror", "plane_mirror"); }
   };
-  const placeOrMark = (id: string) => marks.has(id) || (PLACE_IDS as readonly string[]).includes(id);
-  const placeholderError = (text: string): string | null => {
+  type Known = { objects: Set<string>; marks: Set<string>; optics: Set<string> };
+  const now: Known = { objects, marks, optics };
+  const placeOrMark = (id: string, known: Set<string> = marks) => known.has(id) || (PLACE_IDS as readonly string[]).includes(id);
+  const placeholderError = (text: string, known: Known = now): string | null => {
     for (const m of text.matchAll(PLACEHOLDER_RE)) {
       const [, name, arg] = m;
       if (!arg) {
@@ -95,11 +143,12 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
         continue;
       }
       if (!(name in ARG_PLACEHOLDERS)) return `unknown placeholder {{${name}:${arg}}}`;
-      if (["volume", "surface_area", "float_fraction", "density", "mass"].includes(name) && !objects.has(arg)) return `unknown object in {{${name}:${arg}}}`;
+      if (["volume", "surface_area", "float_fraction", "density", "mass"].includes(name) && !known.objects.has(arg)) return `unknown object in {{${name}:${arg}}}`;
       if (["period", "planet_gravity", "distance_au", "radius_km", "sunlight", "sunlight_change"].includes(name) && !(PLANET_IDS as readonly string[]).includes(arg)) return `unknown planet in {{${name}:${arg}}}`;
+      if ((OPTIC_ARG_PLACEHOLDERS as readonly string[]).includes(name) && !known.optics.has(arg)) return `unknown optics element in {{${name}:${arg}}}`;
       if (name === "distance_km") {
         const ends = arg.split("~");
-        if (ends.length !== 2 || !ends.every(placeOrMark)) return `unknown places in {{${name}:${arg}}}`;
+        if (ends.length !== 2 || !ends.every((e) => placeOrMark(e, known.marks))) return `unknown places in {{${name}:${arg}}}`;
       }
     }
     return null;
@@ -115,19 +164,32 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
       if (!parsed.success) return drop(parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
       const c = parsed.data;
 
+      // Preserve the experiment's gravity before an automatic court load resets the scene.
+      if (c.op === "launch_projectile" && c.gravity === undefined) c.gravity = downwardGravity;
+
       // Science modules need their world; load it first if the plan didn't.
       const home = c.op === "set_module" ? MODULE_HOME[c.module] : MODULE_WORLD[c.op];
       if (home && world !== home) {
         commands.push({ op: "load_world", world: home });
         world = home;
         resetTo(world);
+        downwardGravity = 9.81;
         total++;
       }
 
       switch (c.op) {
+        case "set_parameter":
+          if (c.name === "gravity" && (c.value < 0 || c.value > LIMITS.maxGravity)) return drop(`gravity must be between 0 and ${LIMITS.maxGravity} m/s²`);
+          if (c.name === "gravity") downwardGravity = c.value;
+          break;
+        case "set_gravity":
+          if (world === "court" && (c.gravity[0] !== 0 || c.gravity[2] !== 0 || c.gravity[1] > 0)) return drop("the projectile court supports downward gravity only; use another world for sideways or upward gravity");
+          downwardGravity = Math.max(0, -c.gravity[1]);
+          break;
         case "load_world":
           // Match the player's learner-authored layout, falling back to the template.
           world = c.world;
+          downwardGravity = 9.81;
           resetTo(world);
           break;
         case "spawn_shape":
@@ -144,9 +206,30 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
           const patch = MODULE_FIELDS[c.module].safeParse(c.set);
           if (!patch.success) return drop(`set ${c.module}: ${patch.error.issues.map((i) => `${i.path.join(".") || "set"}: ${i.message}`).join("; ")}`);
           if (!Object.keys(patch.data).length) return drop("set_module needs at least one field to change");
+          if (c.module === "optics") {
+            const p = patch.data as { aimAt?: string | null; object?: { target: string } | null };
+            if (p.aimAt && !optics.has(p.aimAt)) return drop(`aimAt: unknown optics element "${p.aimAt}"`);
+            if (p.object && !optics.has(p.object.target)) return drop(`object.target: unknown optics element "${p.object.target}"`);
+            const kind = p.object ? opticKinds.get(p.object.target) : undefined;
+            if (kind && !["plane_mirror", "concave_mirror", "convex_mirror", "convex_lens", "concave_lens"].includes(kind)) return drop("object.target must be a mirror or lens");
+          }
           c.set = patch.data;
           break;
         }
+        case "show_optics":
+          optics.clear();
+          opticKinds.clear();
+          for (const element of opticsPreset(c.preset).elements) { optics.add(element.id); opticKinds.set(element.id, element.kind); }
+          break;
+        case "place_optic":
+          if (!optics.has(c.id) && optics.size >= MAX_OPTICS) return drop(`the optics table holds at most ${MAX_OPTICS} elements`);
+          optics.add(c.id);
+          opticKinds.set(c.id, c.element);
+          break;
+        case "remove_optic":
+          if (!optics.delete(c.id)) return drop(`unknown optics element "${c.id}"`);
+          opticKinds.delete(c.id);
+          break;
         case "plot_function":
           if (!isValidExpression(c.expression)) return drop(`not a valid expression: ${c.expression}`);
           if (c.xMin !== undefined && c.xMax !== undefined && c.xMin >= c.xMax) return drop("xMin must be less than xMax");
@@ -166,6 +249,7 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
         }
         case "show_measurement":
           if (["volume", "surface_area", "float_fraction"].includes(c.metric) && (!c.target || !objects.has(c.target))) return drop(`${c.metric} needs a target object`);
+          if (c.target && (OPTIC_ARG_PLACEHOLDERS as readonly string[]).includes(c.metric) && !optics.has(c.target)) return drop(`unknown optics element "${c.target}"`);
           break;
         case "spawn_asset":
         case "spawn_primitive":
@@ -213,11 +297,12 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
           break;
         }
         case "focus_camera":
-          if (c.target && !objects.has(c.target) && !characters.has(c.target)) return drop(`unknown target "${c.target}"`);
+          if (c.target && !objects.has(c.target) && !characters.has(c.target) && !optics.has(c.target)) return drop(`unknown target "${c.target}"`);
           break;
         case "launch_projectile": {
           const v = toMetersPerSecond(c.speed, c.unit);
           if (v > PROJECTILE_LIMITS.speed.max) return drop(`speed ${v.toFixed(1)} m/s is above the ${PROJECTILE_LIMITS.speed.max} m/s limit`);
+          downwardGravity = c.gravity!;
           break;
         }
         case "ask_question":
@@ -226,12 +311,23 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
       }
       commands.push(c);
       total++;
+      for (const id of objects) everObjects.add(id);
+      for (const id of marks) everMarks.add(id);
+      for (const id of optics) everOptics.add(id);
     });
     return { title: step.title, commands };
   });
 
   matchEnvironment(steps, typeof scene.environment?.preset === "string" ? scene.environment.preset : undefined);
-  const plan = ScenePlan.safeParse({ ...env.data, steps });
+  // Simu's answer card shows the reply before (and after) the lesson: a sentence
+  // whose number can never be computed is left out instead of showing "{{…}}".
+  // A streamed prefix can only rule out names that don't exist at all.
+  const badName = (s: string) => [...s.matchAll(PLACEHOLDER_RE)].some(([, name, arg]) => (arg ? !(name in ARG_PLACEHOLDERS) : !(PLACEHOLDERS as readonly string[]).includes(name)));
+  const ever: Known = { objects: everObjects, marks: everMarks, optics: everOptics };
+  const prose = (text: string) => keepSentences(text, opts.partial ? (s) => !badName(s) : (s) => placeholderError(s, ever) === null);
+  const reply = prose(env.data.reply) || env.data.title;
+  const details = env.data.details === undefined ? undefined : prose(env.data.details) || undefined;
+  const plan = ScenePlan.safeParse({ ...env.data, reply, details, steps });
   if (!plan.success) return { ok: false, error: plan.error.issues[0]?.message ?? "invalid plan" };
   return { ok: true, plan: plan.data, issues };
 }
@@ -239,7 +335,7 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
 const SUBJECTS = ["physics", "chemistry", "biology", "math", "earth_space", "general_science", "other"];
 const SCOPES = ["in_scope", "too_advanced", "off_topic", "unsafe", "needs_clarification"];
 const SUPPORT = ["simulated", "visual", "text"];
-const CAPS = ["gravity", "projectile", "molecule", "atom", "orbits", "buoyancy", "graph", "geometry", "circuit", "waves", "lever", "matter", "cell", "globe", "concept", "none"];
+const CAPS = ["gravity", "projectile", "molecule", "atom", "orbits", "buoyancy", "graph", "geometry", "circuit", "waves", "lever", "matter", "cell", "globe", "concept", "none", "light", "signal"];
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
 const clip = (v: unknown, max: number) => (typeof v === "string" ? (v.length > max ? `${v.slice(0, max - 1).replace(/\s+\S*$/, "")}…` : v) : v);

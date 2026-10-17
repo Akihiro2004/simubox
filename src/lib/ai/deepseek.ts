@@ -3,6 +3,8 @@ import "server-only";
 // DeepSeek (OpenAI-compatible chat completions), streamed. Used for the
 // cheaper, mechanical plan calls; full lessons stay on Gemini.
 
+// Official latest-Flash API alias; serves V4.1-Flash-1017 as of 2026-10-17.
+// https://api-docs.deepseek.com/updates/
 export const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-flash";
 
 export function deepseekConfigured(): boolean {

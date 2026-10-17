@@ -7,13 +7,14 @@ import { Euler, Quaternion } from "three";
 import { ASSETS, GUIDE_ID, LIMITS, WORLDS, type Vec3 } from "./world/catalog";
 import { assetObject, type SceneObject } from "./world/scene";
 import { allSettled, emit, getBody, liveBodies, livePosition, markFresh, view, waitFor } from "./world/runtime";
-import { fmt, toMetersPerSecond } from "./engine/projectile";
-import { fillPlaceholders } from "./ssp/validate";
+import { fmt, PROJECTILE_LIMITS, toMetersPerSecond } from "./engine/projectile";
+import { fillPlaceholders, fillProse } from "./ssp/validate";
 import { MODULE_FIELDS, type Command, type ScenePlan, type Step } from "./ssp/schema";
 import { applyEnvironment } from "./environment";
 import { pickScene, projectileResult, useSim, type Explanation } from "./store";
 import { prefetchLine, speak, stopSpeaking, type VoiceRole } from "./tts";
-import { ALL_PLANETS, MODULE_DEFAULTS, massFor, moduleValue, objectVolume, type Modules } from "./modules";
+import { ALL_PLANETS, MODULE_DEFAULTS, OPTIC_SIZE, OPTICS_TABLE, RIPPLE_TANK, massFor, moduleValue, objectVolume, patchOptics, patchSignal, signalDefaults, type Modules } from "./modules";
+import { MAX_OPTICS, TABLE, opticsPreset, sourcePosition, type OpticElement } from "./engine/optics";
 import { PLACES } from "./engine/geo";
 import type { ShapeKind } from "./engine/geometry";
 import { EMPTY_TABLE } from "./periodic-table";
@@ -40,7 +41,26 @@ export function cancelPlayback() {
   controller?.abort();
   controller = null;
   stopSpeaking();
+  settleLessonText();
   st().set({ speech: null, aiStatus: st().aiStatus === "playing" ? "idle" : st().aiStatus });
+}
+
+/**
+ * Simu's reply may carry {{placeholders}}; the answer card fills them live
+ * while the lesson plays. Once it stops, the numbers are written in for good
+ * (the scene that computed them may change later), and the transcript too.
+ */
+export function settleLessonText() {
+  const s = st();
+  const fill = (t: string) => fillProse(t, resolvePlaceholder, true);
+  const ex = s.explanation;
+  if (ex && (ex.reply.includes("{{") || ex.details?.includes("{{"))) {
+    s.set({ explanation: { ...ex, reply: fill(ex.reply) || ex.title, details: ex.details && (fill(ex.details) || undefined) } });
+  }
+  const raw = (m: (typeof s.messages)[number]) => m.role === "assistant" && m.text.includes("{{");
+  if (s.messages.some(raw)) {
+    s.set({ messages: s.messages.map((m) => (raw(m) ? { ...m, text: fill(m.text) || m.text.replace(/\{\{[^}]*\}\}/g, "").trim() } : m)) });
+  }
 }
 
 /** Ends the current speech line early (click on bubble / caption). */
@@ -106,6 +126,7 @@ export async function runPlan(plan: ScenePlan, source: Explanation["source"], op
     if (controller === ctl) {
       controller = null;
       st().set({ aiStatus: "idle", speech: null });
+      settleLessonText();
     }
   }
 }
@@ -115,6 +136,8 @@ export function finishPlan(plan: ScenePlan, source: Explanation["source"]) {
   const s = st();
   s.set({ lastPlan: plan, followUps: plan.followUps, explanation: explanationOf(plan, source) });
   if (plan.question) s.set({ topic: plan.question });
+  // Normally the lesson is still playing and settles when it ends.
+  if (!controller) settleLessonText();
 }
 
 /** Warm the voice cache for a step's lines that have no engine placeholders. */
@@ -154,7 +177,7 @@ export function placeholderValues(): Record<string, string> {
   const s = st();
   const p = s.projectile;
   const r = projectileResult(p);
-  const g = s.capability === "projectile" && p ? p.gravity : Math.abs(s.gravity[1]);
+  const g = s.capability === "projectile" && p ? p.gravity : Math.hypot(...s.gravity);
   return {
     range: r ? fmt(r.range, "m") : "?",
     flight_time: r ? fmt(r.flightTime, "s") : "?",
@@ -266,9 +289,11 @@ function pointsOf(what: string | Vec3): Vec3[] {
   if (typeof what !== "string") return [what];
   const o = s.objects[what];
   const ch = s.characters[what];
-  const at = livePosition(what) ?? o?.position ?? ch?.position;
+  const optic = s.world === "optics" ? s.modules.optics?.elements.find((element) => element.id === what) : undefined;
+  const at = livePosition(what) ?? o?.position ?? ch?.position ?? (optic ? [optic.x, OPTICS_TABLE.center[1] + 0.1, optic.z] as Vec3 : undefined);
   if (!at) return [];
   let r = 0.4;
+  if (optic) r = Math.max(0.3, optic.size / 2);
   if (ch) return [at, [at[0], at[1] + 2.4, at[2]]]; // feet to the top of the speech bubble
   if (o?.type === "shape" || o?.type === "primitive") r = Math.max(...o.size) / 2;
   else if (o?.type === "asset") r = (Math.max(...ASSETS[o.asset].size) * o.scale) / 2;
@@ -401,6 +426,7 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       return;
     case "set_gravity":
       s.set({ gravity: c.gravity as Vec3, paused: false });
+      if (s.world === "court" && c.gravity[0] === 0 && c.gravity[2] === 0 && c.gravity[1] <= 0) s.setProjectile({ gravity: -c.gravity[1] }, true);
       wakeAll();
       return;
     case "apply_impulse": {
@@ -448,6 +474,7 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       } else s.set({ paused: c.action === "pause" });
       return;
     case "launch_projectile": {
+      const gravity = c.gravity ?? (s.world === "court" ? s.projectile?.gravity : Math.max(0, -s.gravity[1])) ?? 9.81;
       if (s.world !== "court") {
         s.loadWorld("court");
         await sleep(450, signal);
@@ -457,7 +484,7 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
         {
           speed: toMetersPerSecond(c.speed, c.unit),
           angleDeg: c.angleDeg,
-          gravity: c.gravity ?? 9.81,
+          gravity,
           height: c.heightM ?? 0,
           ball: c.ball ?? "basketball",
         },
@@ -467,9 +494,11 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
     }
     case "set_parameter": {
       const p = s.projectile;
-      if (s.world === "court" && p) {
-        const patch = c.name === "speed" ? { speed: Math.min(c.value, 100) } : c.name === "angle" ? { angleDeg: Math.min(c.value, 90) } : c.name === "height" ? { height: Math.min(c.value, 20) } : { gravity: Math.min(c.value, 30) };
+      if (s.world === "court" && p && ["speed", "angle", "height", "gravity"].includes(c.name)) {
+        const bounded = (key: keyof typeof PROJECTILE_LIMITS) => Math.min(Math.max(c.value, PROJECTILE_LIMITS[key].min), PROJECTILE_LIMITS[key].max);
+        const patch = c.name === "speed" ? { speed: bounded("speed") } : c.name === "angle" ? { angleDeg: bounded("angleDeg") } : c.name === "height" ? { height: bounded("height") } : { gravity: bounded("gravity") };
         s.setProjectile(patch, true);
+        s.set({ paused: false });
       } else if (c.name === "gravity") {
         s.set({ gravity: [0, -Math.min(Math.max(c.value, 0), LIMITS.maxGravity), 0], paused: false });
         wakeAll();
@@ -481,7 +510,7 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
         if ((c.name === "frequency" || c.name === "amplitude" || c.name === "wavelength") && m.wave) {
           const lim = { frequency: [0.1, 4], amplitude: [0.05, 1.2], wavelength: [0.5, 6] }[c.name];
           setModules({ wave: { ...m.wave, [c.name]: Math.min(Math.max(v, lim[0]), lim[1]) } });
-        }
+        } else if (c.name === "frequency" && m.ripple) setModules({ ripple: { ...m.ripple, frequency: Math.min(Math.max(v, 0.3), 3) } });
         if (c.name === "temperature" && m.particles) setModules({ particles: { ...m.particles, temperatureC: Math.min(Math.max(v, -273), 3500) } });
         if (m.lever && (c.name === "left_mass" || c.name === "right_mass")) setModules({ lever: { ...m.lever, [c.name === "left_mass" ? "leftMass" : "rightMass"]: Math.min(Math.max(v, 0.1), 50) } });
         if (m.lever && (c.name === "left_distance" || c.name === "right_distance")) setModules({ lever: { ...m.lever, [c.name === "left_distance" ? "leftDistance" : "rightDistance"]: Math.min(Math.max(v, 0.1), 2.4) } });
@@ -605,6 +634,35 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
         case "globe":
           setModules({ globe: { ...(m.globe ?? MODULE_DEFAULTS.globe), ...MODULE_FIELDS.globe.parse(c.set) } });
           break;
+        case "ripple": {
+          const p = MODULE_FIELDS.ripple.parse(c.set);
+          const cur = m.ripple ?? MODULE_DEFAULTS.ripple;
+          const next = {
+            ...cur,
+            frequency: p.frequencyHz ?? cur.frequency,
+            amplitude: p.amplitude ?? cur.amplitude,
+            depth: p.depthM ?? cur.depth,
+            source: p.source ?? cur.source,
+            separation: p.separationM ?? cur.separation,
+            barrier: p.barrier ?? cur.barrier,
+            gapWidth: p.gapWidthM ?? cur.gapWidth,
+            barrierX: p.barrierX ?? cur.barrierX,
+            reflectorAngle: p.reflectorAngleDeg ?? cur.reflectorAngle,
+            shallow: p.shallow ?? cur.shallow,
+            shallowDepth: p.shallowDepthM ?? cur.shallowDepth,
+            sourceSpeed: p.sourceSpeed ?? cur.sourceSpeed,
+            view: p.view ?? cur.view,
+          };
+          // The tank takes the middle of the workshop mat.
+          setModules({ ripple: next, ...(m.ripple ? {} : { wave: null, lever: null, circuit: null }) });
+          break;
+        }
+        case "signal":
+          setModules({ signal: patchSignal(m.signal ?? MODULE_DEFAULTS.signal, MODULE_FIELDS.signal.parse(c.set)) });
+          break;
+        case "optics":
+          setModules({ optics: patchOptics(m.optics ?? opticsPreset("free"), MODULE_FIELDS.optics.parse(c.set)) });
+          break;
       }
       await sleep(500, signal);
       return;
@@ -645,20 +703,84 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       setModules({ plot: { functions: [], points: [], vectors: [] } });
       return;
     case "build_circuit":
-      setModules({ circuit: { layout: c.layout, voltage: c.voltage, bulbs: c.bulbs, resistance: c.resistanceOhms ?? 10, closed: c.switchClosed ?? true, broken: [] } });
+      setModules({ circuit: { layout: c.layout, voltage: c.voltage, bulbs: c.bulbs, resistance: c.resistanceOhms ?? 10, closed: c.switchClosed ?? true, broken: [] }, ripple: null });
       s.set({ capability: "circuit" });
       await sleep(600, signal);
       return;
     case "show_wave":
-      setModules({ wave: { kind: c.kind, amplitude: c.amplitude, frequency: c.frequency, wavelength: c.wavelength } });
+      setModules({ wave: { kind: c.kind, amplitude: c.amplitude, frequency: c.frequency, wavelength: c.wavelength }, ripple: null });
       s.set({ capability: "waves" });
       await sleep(500, signal);
       return;
     case "build_lever":
-      setModules({ lever: { leftMass: c.leftMassKg, leftDistance: c.leftDistanceM, rightMass: c.rightMassKg, rightDistance: c.rightDistanceM } });
+      setModules({ lever: { leftMass: c.leftMassKg, leftDistance: c.leftDistanceM, rightMass: c.rightMassKg, rightDistance: c.rightDistanceM }, ripple: null });
       s.set({ capability: "lever" });
       await sleep(900, signal);
       return;
+    case "show_ripple_tank": {
+      const d = MODULE_DEFAULTS.ripple;
+      const first = !s.modules.ripple;
+      setModules({
+        ripple: { ...d, source: c.source ?? d.source, frequency: c.frequencyHz ?? d.frequency, depth: c.depthM ?? d.depth, barrier: c.barrier ?? d.barrier, gapWidth: c.gapWidthM ?? d.gapWidth, separation: c.separationM ?? d.separation, shallow: c.shallow ?? d.shallow, sourceSpeed: c.sourceSpeed ?? d.sourceSpeed, view: c.view ?? d.view },
+        wave: null,
+        lever: null,
+        circuit: null,
+      });
+      s.set({ capability: "waves" });
+      if (first) s.focus({ target: RIPPLE_TANK.center, distance: 7.5 });
+      await sleep(800, signal);
+      return;
+    }
+    case "show_signal": {
+      const first = !s.modules.signal;
+      const base = signalDefaults(c.kind, c.layout ?? s.modules.signal?.layout ?? "apartment");
+      setModules({ signal: patchSignal(base, { source: c.source, device: c.device, soundHz: c.soundHz, view: c.view }) });
+      s.set({ capability: "signal" });
+      if (first) {
+        s.focus({ target: [0, 0.4, 0.2], distance: 13 });
+        // The plan covers the guide's usual spot: stand at the stage's edge instead.
+        if (s.world === "stage" && s.characters[GUIDE_ID]) s.patchCharacter(GUIDE_ID, { position: [3.75, 0, 3.15] });
+      }
+      await sleep(800, signal);
+      return;
+    }
+    case "show_optics": {
+      // The Light Lab's home view already frames the table.
+      setModules({ optics: opticsPreset(c.preset, { color: c.color, angleDeg: c.angleDeg, material: c.material }) });
+      s.set({ capability: "light" });
+      await sleep(700, signal);
+      return;
+    }
+    case "place_optic": {
+      const o = s.modules.optics ?? opticsPreset("free");
+      const old = o.elements.find((e) => e.id === c.id);
+      const [x, z] = c.position as [number, number];
+      const e: OpticElement = {
+        id: c.id,
+        kind: c.element,
+        x: Math.min(TABLE.x, Math.max(-TABLE.x, x)),
+        z: Math.min(TABLE.z, Math.max(-TABLE.z, z)),
+        rotationDeg: c.rotationDeg ?? old?.rotationDeg ?? 0,
+        size: c.sizeM ?? (old?.kind === c.element ? old.size : OPTIC_SIZE[c.element]),
+        width: c.widthM ?? old?.width,
+        focalLength: c.focalLengthM ?? old?.focalLength ?? 0.8,
+        material: c.material ?? old?.material ?? "glass",
+      };
+      const elements = old ? o.elements.map((k) => (k.id === c.id ? e : k)) : [...o.elements, e].slice(-MAX_OPTICS);
+      setModules({ optics: { ...o, elements } });
+      s.set({ capability: "light" });
+      await sleep(600, signal);
+      return;
+    }
+    case "remove_optic": {
+      const o = s.modules.optics;
+      if (!o) return;
+      const at = sourcePosition(o.source, o.elements);
+      const source = o.source.aimAt === c.id ? { ...o.source, aimAt: null, x: at[0], z: at[1] } : o.source;
+      setModules({ optics: { ...o, source, elements: o.elements.filter((e) => e.id !== c.id), object: o.object?.target === c.id ? null : o.object } });
+      await sleep(400, signal);
+      return;
+    }
     case "show_particles":
       // First appearance: bring the camera in so the particles are big enough to see.
       if (!s.modules.particles) s.focus({ target: [0, 1.7, 0], distance: 6 });
@@ -733,7 +855,8 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       s.set({ annotations: [], vectors: [], metrics: [], formula: null, highlighted: [], cards: [] });
       return;
     case "focus_camera": {
-      const target = c.target ? (livePosition(c.target) ?? s.objects[c.target]?.position ?? s.characters[c.target]?.position) : (c.position as Vec3 | undefined);
+      const optic = s.world === "optics" && c.target ? s.modules.optics?.elements.find((element) => element.id === c.target) : undefined;
+      const target = c.target ? (livePosition(c.target) ?? s.objects[c.target]?.position ?? s.characters[c.target]?.position ?? (optic ? [optic.x, OPTICS_TABLE.center[1] + 0.1, optic.z] as Vec3 : undefined)) : (c.position as Vec3 | undefined);
       // Frame the target together with the guide, so the bubble stays readable.
       const guide = s.characters[GUIDE_ID] && target && s.camera.preset !== "periodic_table" ? pointsOf(GUIDE_ID) : [];
       if (guide.length && target) s.focus({ points: [...guide, ...pointsOf(c.target ?? target)], radius: { close: 1.2, medium: 2.2, wide: 4.5 }[c.zoom ?? "medium"] });

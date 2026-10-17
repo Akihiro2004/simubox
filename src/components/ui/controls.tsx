@@ -7,8 +7,10 @@ import { useSim, projectileResult } from "@/lib/store";
 import { execNow } from "@/lib/player";
 import { GRAVITY_PRESETS, fmt } from "@/lib/engine/projectile";
 import { ELEMENTS, MOLECULES, MOLECULE_IDS, type MoleculeId } from "@/lib/engine/chemistry";
-import { ASSETS, GUIDE_ID } from "@/lib/world/catalog";
-import { MODULE_DEFAULTS, type Modules } from "@/lib/modules";
+import { ASSETS, GUIDE_ID, LIMITS } from "@/lib/world/catalog";
+import { MODULE_DEFAULTS, OPTICS_TABLE, opticsTrace, patchOptics, patchSignal, signalReception, type Modules, type OpticsPatch, type RippleState, type SignalPatch, type SignalState } from "@/lib/modules";
+import { SIGNAL_KINDS, SIGNAL_KIND_IDS, WALL_MATERIALS, formatFrequency, formatLength, formatSpeed, formatStrength, signalWavelength, waterWave, type SignalKind, type WallMaterial } from "@/lib/engine/waves";
+import { OPTIC_PRESETS, TABLE, criticalAngle, fresnelReflectance, objectRays, refractiveIndex, signedFocal, sourceWavelength, turningHits, type OpticElement, type OpticPreset } from "@/lib/engine/optics";
 import { isValidExpression } from "@/lib/engine/expr";
 import { measureShape } from "@/lib/engine/geometry";
 import { PLACES, distanceKm } from "@/lib/engine/geo";
@@ -70,7 +72,7 @@ function GravityControls() {
     <>
       <Seg label="Gravity presets" value={nearestPreset(g)} options={gravityOptions} onChange={setG} cols={3} />
       <div className="group-rows mt-2">
-        <Slider label="Gravity" min={0} max={25} step={0.01} value={g} display={fmt(g, "m/s²")} onChange={setG} />
+        <Slider label="Gravity" min={0} max={LIMITS.maxGravity} step={0.01} value={g} display={fmt(g, "m/s²")} sub={`${(g / 9.81).toFixed(2)}× Earth`} onChange={setG} />
       </div>
       <Action onClick={() => execNow({ op: "apply_impulse", id: "all", impulse: [0, 1.4, 0] })}>
         <Hand size={18} /> Give everything a nudge
@@ -106,6 +108,9 @@ function ProjectileControls() {
       </div>
       <Caption>Gravity</Caption>
       <Seg label="Gravity" value={nearestPreset(p.gravity)} options={gravityOptions} onChange={(gravity) => setProjectile({ gravity }, true)} cols={3} />
+      <div className="group-rows mt-2">
+        <Slider label="Gravity acceleration" min={0} max={LIMITS.maxGravity} step={0.01} value={p.gravity} display={fmt(p.gravity, "m/s²")} sub={`${(p.gravity / 9.81).toFixed(2)}× Earth`} onChange={(gravity) => edit({ gravity })} onCommit={launch} />
+      </div>
       <Caption>Ball</Caption>
       <Seg label="Ball" value={p.ball} options={BALLS} onChange={(ball) => setProjectile({ ball }, true)} />
       <div className="mt-3 flex gap-2">
@@ -315,14 +320,20 @@ function GlobeControls() {
 }
 
 function WorkshopControls() {
-  const { circuit, lever, wave } = useSim(useShallow((s) => ({ circuit: s.modules.circuit, lever: s.modules.lever, wave: s.modules.wave })));
-  const active = circuit ? "circuit" : lever ? "lever" : wave ? "wave" : null;
-  const pick = (k: "circuit" | "lever" | "wave") =>
-    patchModules({ circuit: k === "circuit" ? (circuit ?? MODULE_DEFAULTS.circuit) : null, lever: k === "lever" ? (lever ?? MODULE_DEFAULTS.lever) : null, wave: k === "wave" ? (wave ?? MODULE_DEFAULTS.wave) : null });
+  const { circuit, lever, wave, ripple } = useSim(useShallow((s) => ({ circuit: s.modules.circuit, lever: s.modules.lever, wave: s.modules.wave, ripple: s.modules.ripple ?? null })));
+  const active = ripple ? "ripple" : circuit ? "circuit" : lever ? "lever" : wave ? "wave" : null;
+  const pick = (k: "circuit" | "lever" | "wave" | "ripple") =>
+    patchModules({
+      circuit: k === "circuit" ? (circuit ?? MODULE_DEFAULTS.circuit) : null,
+      lever: k === "lever" ? (lever ?? MODULE_DEFAULTS.lever) : null,
+      wave: k === "wave" ? (wave ?? MODULE_DEFAULTS.wave) : null,
+      ripple: k === "ripple" ? (ripple ?? MODULE_DEFAULTS.ripple) : null,
+    });
   return (
     <>
-      <Seg label="Experiment" value={active} options={[["circuit", "Circuit"], ["lever", "Lever"], ["wave", "Wave"]] as const} onChange={pick} />
-      {circuit && (
+      <Seg label="Experiment" value={active} options={[["circuit", "Circuit"], ["lever", "Lever"], ["wave", "Rope"], ["ripple", "Ripples"]] as const} onChange={pick} />
+      {ripple && <RippleControls r={ripple} />}
+      {!ripple && circuit && (
         <>
           <Caption>Bulbs connected in</Caption>
           <Seg label="Layout" value={circuit.layout} options={[["series", "Series"], ["parallel", "Parallel"]] as const} onChange={(layout) => patchModules({ circuit: { ...circuit, layout } })} />
@@ -334,7 +345,7 @@ function WorkshopControls() {
           <Toggle label="Switch closed" checked={circuit.closed} onChange={(closed) => patchModules({ circuit: { ...circuit, closed } })} />
         </>
       )}
-      {!circuit && lever && (
+      {!ripple && !circuit && lever && (
         <div className="group-rows mt-2">
           <Slider label="Left weight" min={0.5} max={20} step={0.5} value={lever.leftMass} display={fmt(lever.leftMass, "kg", 1)} onChange={(leftMass) => patchModules({ lever: { ...lever, leftMass } })} />
           <Slider label="Left distance" min={0.2} max={2.4} step={0.1} value={lever.leftDistance} display={fmt(lever.leftDistance, "m", 1)} onChange={(leftDistance) => patchModules({ lever: { ...lever, leftDistance } })} />
@@ -342,7 +353,7 @@ function WorkshopControls() {
           <Slider label="Right distance" min={0.2} max={2.4} step={0.1} value={lever.rightDistance} display={fmt(lever.rightDistance, "m", 1)} onChange={(rightDistance) => patchModules({ lever: { ...lever, rightDistance } })} />
         </div>
       )}
-      {!circuit && !lever && wave && (
+      {!ripple && !circuit && !lever && wave && (
         <>
           <Seg label="Wave kind" value={wave.kind} options={[["transverse", "Side to side"], ["longitudinal", "Push and pull"]] as const} onChange={(kind) => patchModules({ wave: { ...wave, kind } })} />
           <div className="group-rows mt-2">
@@ -353,8 +364,197 @@ function WorkshopControls() {
         </>
       )}
       <Note>
-        {circuit ? "Click the switch or any bulb on the board to open the switch or break and fix a bulb." : lever ? "Turning effect = weight × distance from the pivot. Equal on both sides means balanced." : "Wave speed = frequency × wavelength."}
+        {ripple ? "Water waves are real here: the wave speed comes from the depth. Watch them bend over the shallow plate and spread through gaps." : circuit ? "Click the switch or any bulb on the board to open the switch or break and fix a bulb." : lever ? "Turning effect = weight × distance from the pivot. Equal on both sides means balanced." : "Wave speed = frequency × wavelength."}
       </Note>
+    </>
+  );
+}
+
+const RIPPLE_BARRIER_LABELS = [["none", "None"], ["wall", "Wall"], ["gap", "Gap"], ["double_slit", "2 gaps"], ["reflector", "Angled"]] as const;
+
+function RippleControls({ r }: { r: RippleState }) {
+  const set = (p: Partial<RippleState>) => patchModules({ ripple: { ...r, ...p } });
+  const w = waterWave(r.frequency, r.depth);
+  const shallow = r.shallow ? waterWave(r.frequency, r.shallowDepth) : null;
+  return (
+    <>
+      <Caption>Dipper</Caption>
+      <Seg label="Wave source" value={r.source} options={[["point", "One"], ["two_point", "Two"], ["plane", "Straight"]] as const} onChange={(source) => set({ source })} />
+      <div className="group-rows mt-2">
+        <Slider label="Frequency" min={0.3} max={3} step={0.1} value={r.frequency} display={formatFrequency(r.frequency)} onChange={(frequency) => set({ frequency })} />
+        <Slider label="Water depth" min={0.02} max={0.5} step={0.01} value={r.depth} display={formatLength(r.depth)} onChange={(depth) => set({ depth })} />
+        {r.source === "two_point" && <Slider label="Dippers apart" min={0.1} max={1.2} step={0.05} value={r.separation} display={formatLength(r.separation)} onChange={(separation) => set({ separation })} />}
+        {r.source === "point" && <Slider label="Moving dipper" min={0} max={0.5} step={0.05} value={r.sourceSpeed} display={r.sourceSpeed ? formatSpeed(r.sourceSpeed) : "still"} sub={r.sourceSpeed ? "Doppler" : undefined} onChange={(sourceSpeed) => set({ sourceSpeed })} />}
+      </div>
+      <Caption>Barrier</Caption>
+      <Seg label="Barrier" value={r.barrier} options={RIPPLE_BARRIER_LABELS} onChange={(barrier) => set({ barrier })} cols={5} />
+      {(r.barrier === "gap" || r.barrier === "double_slit" || r.barrier === "reflector") && (
+        <div className="group-rows mt-2">
+          {r.barrier !== "reflector" && <Slider label="Gap" min={0.05} max={1} step={0.05} value={r.gapWidth} display={formatLength(r.gapWidth)} sub={`${(r.gapWidth / w.wavelength).toFixed(1)} λ`} onChange={(gapWidth) => set({ gapWidth })} />}
+          {r.barrier === "double_slit" && <Slider label="Gaps apart" min={0.1} max={1.2} step={0.05} value={r.separation} display={formatLength(r.separation)} onChange={(separation) => set({ separation })} />}
+          {r.barrier === "reflector" && <Slider label="Barrier angle" min={-60} max={60} step={5} value={r.reflectorAngle} display={`${r.reflectorAngle}°`} onChange={(reflectorAngle) => set({ reflectorAngle })} />}
+        </div>
+      )}
+      <Toggle label="Shallow plate (refraction)" checked={r.shallow} onChange={(s) => set({ shallow: s })} />
+      <Caption>Show</Caption>
+      <Seg label="View" value={r.view} options={[["waves", "Waves"], ["intensity", "Where they add up"]] as const} onChange={(view) => set({ view })} />
+      <div className="group-rows mt-2">
+        <Row label="Wavelength" value={formatLength(w.wavelength)} />
+        <Row label="Speed" value={formatSpeed(w.speed)} />
+        <Row label="Period" value={`${w.period.toFixed(2)} s`} />
+        {shallow && <Row label="Over the plate" value={`${formatLength(shallow.wavelength)} · ${formatSpeed(shallow.speed)}`} />}
+      </div>
+    </>
+  );
+}
+
+const SIGNAL_LABELS: Record<SignalKind, string> = { wifi_2_4: "Wi-Fi 2.4 GHz", wifi_5: "Wi-Fi 5 GHz", bluetooth: "Bluetooth", mobile_4g: "4G phone", mobile_5g: "5G (mmWave)", fm_radio: "FM radio", am_radio: "AM radio", sound: "Sound", light: "Light" };
+
+function SignalControls({ s }: { s: SignalState }) {
+  const set = (p: SignalPatch) => patchModules({ signal: patchSignal(s, p) });
+  const r = signalReception(s);
+  const band = SIGNAL_KINDS[s.kind].band;
+  return (
+    <>
+      <Caption>Wave</Caption>
+      <select aria-label="Kind of signal" className="w-full rounded-xl bg-white/80 px-3 py-2.5 text-sm" value={s.kind} onChange={(e) => set({ kind: e.target.value as SignalKind })}>
+        {SIGNAL_KIND_IDS.map((k) => <option key={k} value={k}>{SIGNAL_LABELS[k]}</option>)}
+      </select>
+      {s.kind === "sound" && (
+        <div className="group-rows mt-2">
+          <Slider label="Pitch" min={50} max={4000} step={10} value={s.soundHz} display={formatFrequency(s.soundHz)} sub={formatLength(343 / s.soundHz)} onChange={(soundHz) => set({ soundHz })} />
+        </div>
+      )}
+      <Caption>Place</Caption>
+      <Seg label="Floor plan" value={s.layout} options={[["room", "Room"], ["apartment", "Flat"], ["open_field", "Open"], ["elevator", "Lift"]] as const} onChange={(layout) => set({ layout })} />
+      {s.walls.length > 0 && (
+        <select aria-label="Make every wall" className="mt-2 w-full rounded-xl bg-white/80 px-3 py-2.5 text-sm" value="" onChange={(e) => e.target.value && set({ allWalls: e.target.value as WallMaterial })}>
+          <option value="">Make every wall…</option>
+          {WALL_MATERIALS.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+      )}
+      <Caption>Show</Caption>
+      <Seg label="View" value={s.view} options={[["both", "Both"], ["waves", "Waves"], ["strength", "Strength"]] as const} onChange={(view) => set({ view })} />
+      <div className="group-rows mt-2">
+        <Row label={band === "sound" ? "Loudness" : band === "light" ? "Brightness" : "Signal"} value={formatStrength(s.kind, r)} />
+        <Row label="Quality" value={band === "sound" || band === "light" ? r.quality : `${r.bars} of 4 bars`} />
+        <Row label="Distance" value={formatLength(r.distance)} />
+        <Row label="Walls in the way" value={r.walls.length ? `${r.walls.length} (−${Number.isFinite(r.wallLoss) ? Math.round(r.wallLoss) : "all"} dB)` : "none"} />
+        <Row label="Wavelength" value={formatLength(signalWavelength(s.kind, s.soundHz))} />
+      </div>
+      <Note>Drag the {SIGNAL_KINDS[s.kind].source} or the {SIGNAL_KINDS[s.kind].device} around the plan. Thick or metal walls cost the most.</Note>
+    </>
+  );
+}
+
+function StageControls() {
+  const s = useSim((st) => st.modules.signal ?? null);
+  return (
+    <>
+      <Seg label="Explore" value={s ? "signal" : "free"} options={[["free", "Free build"], ["signal", "Signals"]] as const} onChange={(k) => (k === "signal" ? execNow({ op: "show_signal", kind: "wifi_2_4" }) : patchModules({ signal: null }))} />
+      {s ? <SignalControls s={s} /> : <GravityControls />}
+    </>
+  );
+}
+
+const OPTIC_LABELS: Record<OpticPreset, string> = {
+  plane_image: "Plane mirror image",
+  reflection: "Mirror reflection", periscope: "Periscope", refraction: "Refraction in a block", total_internal_reflection: "Total internal reflection", optical_fibre: "Optical fibre", prism: "Prism and rainbow",
+  convex_lens: "Convex lens", concave_lens: "Concave lens", lens_image: "Lens image (ray diagram)", magnifier: "Magnifying glass", concave_mirror: "Concave mirror", convex_mirror: "Convex mirror",
+  mirror_image: "Mirror image (ray diagram)", shadows: "Shadows", colour_mixing: "Colour mixing", free: "Empty table",
+};
+
+function OpticsControls() {
+  const o = useSim((s) => s.modules.optics ?? null);
+  const [picked, setPicked] = useState<string | null>(null);
+  if (!o) return <Action onClick={() => execNow({ op: "show_optics", preset: "reflection" })}>Set up the optics table</Action>;
+  const set = (p: OpticsPatch) => patchModules({ optics: patchOptics(o, p) });
+  const setElement = (id: string, p: Partial<OpticElement>) => patchModules({ optics: { ...o, elements: o.elements.map((e) => (e.id === id ? { ...e, ...p } : e)) } });
+  const tr = opticsTrace(o);
+  const el = o.elements.find((e) => e.id === picked) ?? o.elements.find((e) => e.kind !== "screen" && e.kind !== "blocker") ?? o.elements[0];
+  const first = turningHits(tr.hits)[0];
+  const image = objectRays(o);
+  const refractor = el && ["glass_block", "prism", "semicircle"].includes(el.kind);
+  const nm = sourceWavelength(o.source);
+  const crit = el && refractor ? criticalAngle(refractiveIndex(el.material, nm), refractiveIndex(o.medium, nm)) : null;
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-2">
+        <Action onClick={() => useSim.getState().focus({ target: [0, OPTICS_TABLE.center[1] + 0.1, 0], distance: 12 * Math.max(1, window.innerHeight / window.innerWidth) })}>Table close-up</Action>
+        <Action onClick={() => useSim.getState().focus({ preset: "home" })}>Room view</Action>
+      </div>
+      <select aria-label="Optics experiment" className="w-full rounded-xl bg-white/80 px-3 py-2.5 text-sm" value="" onChange={(e) => e.target.value && execNow({ op: "show_optics", preset: e.target.value as OpticPreset })}>
+        <option value="">Try an experiment…</option>
+        {OPTIC_PRESETS.map((p) => <option key={p} value={p}>{OPTIC_LABELS[p]}</option>)}
+      </select>
+      {o.source.kind !== "off" && (
+        <>
+          <Caption>Light</Caption>
+          <Seg label="Light colour" value={o.source.wavelengthNm != null ? null : o.source.color} options={[["red", "Red"], ["green", "Green"], ["blue", "Blue"], ["white", "White"]] as const} onChange={(color) => set({ color })} />
+          <div className="group-rows mt-2">
+            <Slider label="Beam angle" min={-180} max={180} step={1} value={Math.round(((o.source.angleDeg + 540) % 360) - 180)} display={`${Math.round(((o.source.angleDeg + 540) % 360) - 180)}°`} onChange={(angleDeg) => set({ angleDeg })} />
+            {(o.source.color !== "white" || o.source.wavelengthNm != null) && <Slider label="Wavelength" min={380} max={780} step={5} value={nm} display={`${nm} nm`} onChange={(wavelengthNm) => set({ wavelengthNm })} />}
+            {o.source.aimAt && <Slider label="Source distance" min={0.2} max={2.6} step={0.05} value={o.source.reach} display={`${o.source.reach.toFixed(2)} m`} onChange={(reachM) => set({ reachM })} />}
+          </div>
+          <Seg label="Source type" value={o.source.kind} options={[["laser", "Laser"], ["ray_box", "Ray box"], ["lamp", "Point source"]] as const} onChange={(sourceKind) => set({ sourceKind, spread: sourceKind === "lamp" ? 40 : 0.8, rays: sourceKind === "laser" ? 1 : 5 })} />
+          {o.source.kind !== "laser" && <div className="group-rows mt-2">
+            <Slider label="Number of rays" min={1} max={9} step={2} value={o.source.rays} display={`${o.source.rays}`} onChange={(rays) => set({ rays })} />
+            <Slider label={o.source.kind === "ray_box" ? "Beam width" : "Fan angle"} min={0.1} max={o.source.kind === "ray_box" ? 2.4 : 120} step={o.source.kind === "ray_box" ? 0.1 : 1} value={o.source.spread} display={`${o.source.spread.toFixed(1)}${o.source.kind === "ray_box" ? " m" : "°"}`} onChange={(spread) => set({ spread })} />
+          </div>}
+        </>
+      )}
+      {el ? (
+        <>
+          <Caption>{o.elements.length > 1 ? "Element" : "The " + el.kind.replace(/_/g, " ")}</Caption>
+          {o.elements.length > 1 && (
+            <select aria-label="Pick an element" className="w-full rounded-xl bg-white/80 px-3 py-2.5 text-sm" value={el.id} onChange={(e) => setPicked(e.target.value)}>
+              {o.elements.map((e) => <option key={e.id} value={e.id}>{e.id.replace(/_/g, " ")} ({e.kind.replace(/_/g, " ")})</option>)}
+            </select>
+          )}
+          <div className="group-rows mt-2">
+            <Slider label="Turn" min={-180} max={180} step={1} value={Math.round(((el.rotationDeg + 540) % 360) - 180)} display={`${Math.round(((el.rotationDeg + 540) % 360) - 180)}°`} onChange={(rotationDeg) => setElement(el.id, { rotationDeg })} />
+            <Slider label="Element X" min={-TABLE.x} max={TABLE.x} step={0.05} value={el.x} display={`${el.x.toFixed(2)} m`} onChange={(x) => setElement(el.id, { x })} />
+            <Slider label="Element Z" min={-TABLE.z} max={TABLE.z} step={0.05} value={el.z} display={`${el.z.toFixed(2)} m`} onChange={(z) => setElement(el.id, { z })} />
+            {signedFocal(el) !== null && <Slider label="Focal length" min={0.3} max={2} step={0.05} value={el.focalLength} display={`${el.focalLength.toFixed(2)} m`} onChange={(focalLength) => setElement(el.id, { focalLength })} />}
+          </div>
+          {refractor && <Seg label="Material" value={el.material === "air" ? null : el.material} options={[["water", "Water"], ["acrylic", "Acrylic"], ["glass", "Glass"], ["diamond", "Diamond"]] as const} onChange={(material) => setElement(el.id, { material })} />}
+        </>
+      ) : null}
+      {o.object && (
+        <div className="group-rows mt-2">
+          <Slider label="Object distance" min={0.2} max={2.6} step={0.05} value={o.object.distance} display={`${o.object.distance.toFixed(2)} m`} onChange={(distanceM) => set({ object: { target: o.object!.target, distanceM, heightM: o.object!.height } })} />
+        </div>
+      )}
+      {o.mixing && (
+        <>
+          <Toggle label="Red lamp" checked={o.mixing.red} onChange={(red) => set({ mixing: { ...o.mixing!, red } })} />
+          <Toggle label="Green lamp" checked={o.mixing.green} onChange={(green) => set({ mixing: { ...o.mixing!, green } })} />
+          <Toggle label="Blue lamp" checked={o.mixing.blue} onChange={(blue) => set({ mixing: { ...o.mixing!, blue } })} />
+        </>
+      )}
+      {!o.mixing && (
+        <>
+          <Caption>Around the table</Caption>
+          <Seg label="Medium" value={o.medium} options={[["air", "Air"], ["water", "Under water"]] as const} onChange={(medium) => set({ medium })} />
+          <Toggle label="Show normals and angles" checked={o.normals} onChange={(normals) => set({ normals })} />
+          <Toggle label="Show faint reflections" checked={o.reflections !== false} onChange={(reflections) => set({ reflections })} />
+        </>
+      )}
+      <div className="group-rows mt-2">
+        {first && <Row label="Angle of incidence" value={`${first.incidenceDeg.toFixed(1)}°`} />}
+        {first && first.outDeg !== null && <Row label={first.kind === "refract" ? "Angle of refraction" : first.kind === "lens" ? "Exit angle to axis" : "Angle of reflection"} value={`${first.outDeg.toFixed(1)}°`} />}
+        {first?.kind === "total_internal_reflection" && <Row label="Light" value="totally reflected" />}
+        {crit !== null && <Row label={`Critical angle (${el.material} → ${o.medium})`} value={`${crit.toFixed(1)}°`} />}
+        {refractor && <Row label={`Refractive index (${nm} nm)`} value={refractiveIndex(el.material, nm).toFixed(4)} />}
+        {first && first.kind !== "absorb" && first.kind !== "lens" && <Row label="Surface reflectance" value={`${((first.kind === "refract" ? fresnelReflectance(first.n1, first.n2, Math.cos(first.incidenceDeg * Math.PI / 180)) : 1) * 100).toFixed(1)}%`} />}
+        {tr.spread !== null && <Row label="Rainbow spread" value={`${tr.spread.toFixed(1)}°`} />}
+        {image && <Row label="Image" value={image.result.imageDistance === null ? "none (object at F)" : `${Math.abs(image.result.imageDistance).toFixed(2)} m, ${image.result.description}`} />}
+        {o.source.kind !== "off" && o.elements.filter((e) => e.kind === "screen").map((screen) => <Row key={screen.id} label={`${screen.id.replace(/_/g, " ")} capture`} value={`${(tr.spots.filter((spot) => !spot.diagram && spot.elementId === screen.id).reduce((sum, spot) => sum + spot.intensity, 0) * 100).toFixed(1)}%`} />)}
+      </div>
+      <Toggle label="Dim room for projection" checked={o.lighting === "dim"} onChange={(dim) => set({ lighting: dim ? "dim" : "bright" })} />
+      {tr.truncated && <Note>Ray limit reached. This view omits some later bounces.</Note>}
+      {image && <Note>{o.elements.some((e) => e.kind === "concave_mirror" || e.kind === "convex_mirror") ? "Image distances use the paraxial approximation. Spherical mirror rays can show aberration away from the axis." : "Ideal thin-lens or plane-mirror image for the selected element. A virtual image cannot be projected onto a screen."}</Note>}
+      <Note>{o.mixing ? "Light colours add up: red + green = yellow, green + blue = cyan, red + blue = magenta, all three = white." : "Angles are measured from the normal, the dashed line at right angles to the surface."}</Note>
     </>
   );
 }
@@ -561,6 +761,10 @@ function useControls() {
       return { name: "Globe", body: <GlobeControls /> };
     case "workshop":
       return { name: "Workshop", body: <WorkshopControls /> };
+    case "optics":
+      return { name: "Light lab", body: <OpticsControls /> };
+    case "stage":
+      return { name: "Stage", body: <StageControls /> };
     default:
       return { name: "Gravity", body: <GravityControls /> };
   }
@@ -803,7 +1007,8 @@ export function RightRail() {
         <MorphCard content={content} />
       </div>
       <button
-        className={`btn pointer-events-auto mt-2.5 flex h-11 shrink-0 items-center gap-2 rounded-full pl-3.5 pr-4 text-[15px] font-bold ${controlsOpen && !showingSelection ? "btn-ink shadow-[0_8px_20px_-8px_rgba(28,30,34,0.6)]" : "glass"}`}
+        className={`btn pointer-events-auto mt-2.5 flex h-11 shrink-0 items-center gap-2 rounded-full pl-3.5 pr-4 text-[15px] font-bold max-[359px]:px-3 ${controlsOpen && !showingSelection ? "btn-ink shadow-[0_8px_20px_-8px_rgba(28,30,34,0.6)]" : "glass"}`}
+        aria-label="Controls"
         aria-expanded={controlsOpen && !showingSelection}
         onClick={() => {
           // From an object card, the button morphs the card back to controls.
@@ -813,7 +1018,7 @@ export function RightRail() {
           } else setOpen(!controlsOpen);
         }}
       >
-        <SlidersHorizontal size={18} /> Controls
+        <SlidersHorizontal size={18} /><span className="hidden min-[360px]:inline">Controls</span>
       </button>
     </div>
   );

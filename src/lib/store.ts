@@ -204,6 +204,7 @@ const WORLD_CAPABILITY: Record<WorldId, CapabilityId> = {
   math: "graph",
   globe: "globe",
   workshop: "circuit",
+  optics: "light",
 };
 
 export function freshScene(world: WorldId, nonce = 0): SceneData {
@@ -329,7 +330,7 @@ export const useSim = create<SimState>()(
             next.launchNonce = cur.launchNonce + 1;
             next.status = "flying";
           }
-          return { projectile: next };
+          return { projectile: next, ...(relaunch ? { paused: false } : {}), ...(s.world === "court" && p.gravity !== undefined ? { gravity: [0, -next.gravity, 0] as Vec3 } : {}) };
         }),
       focus: (r) => set((s) => ({ camera: { ...r, nonce: s.camera.nonce + 1 } })),
       addMessage: (role, text, speech) =>

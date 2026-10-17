@@ -4,10 +4,11 @@
 import { FURNITURE } from "./furnishings";
 import { NATURE_ASSETS } from "./nature";
 import { LEARNING_ASSETS } from "./learning-assets";
+import { PROJECTILE_LIMITS } from "../engine/projectile";
 
 export type Vec3 = [number, number, number];
 
-export const WORLD_IDS = ["bedroom", "court", "lab", "park", "stage", "space", "ocean", "math", "globe", "workshop"] as const;
+export const WORLD_IDS = ["bedroom", "court", "lab", "park", "stage", "space", "ocean", "math", "globe", "workshop", "optics"] as const;
 export type WorldId = (typeof WORLD_IDS)[number];
 
 export interface WorldDef {
@@ -102,6 +103,14 @@ export const WORLDS: Record<WorldId, WorldDef> = {
     camera: { position: [11.2, 9.4, 11.2], target: [0.3, 0.2, 0.5] },
     guideSpot: [2.3, 0, 2.6],
   },
+  optics: {
+    id: "optics",
+    name: "Light Lab",
+    description: "A bright optics studio with a high-contrast optical table and RGB projection screen. Reflection, Snell refraction, Fresnel power, dispersion, ideal thin lenses, spherical mirrors, real and virtual images, and colour mixing. Wavelength, screen power and lighting are adjustable.",
+    bounds: { min: [-3.8, 0, -3.8], max: [3.8, 3.6, 3.8] },
+    camera: { position: [6.4, 10.8, 9.6], target: [0, 0.75, 0.25] },
+    guideSpot: [2.9, 0, 2.5],
+  },
 };
 
 export type Collider = "ball" | "cuboid" | "hull";
@@ -192,5 +201,5 @@ export const LIMITS = {
   maxSpeakChars: 240,
   maxImpulse: 25,
   maxSpeed: 40,
-  maxGravity: 50,
+  maxGravity: PROJECTILE_LIMITS.gravity.max,
 } as const;

@@ -36,7 +36,7 @@ export interface ProjectileResult {
 export const PROJECTILE_LIMITS = {
   speed: { min: 0, max: 100 },
   angleDeg: { min: 0, max: 90 },
-  gravity: { min: 0, max: 30 },
+  gravity: { min: 0, max: 1000 },
   height: { min: 0, max: 20 },
 } as const;
 
@@ -107,6 +107,7 @@ export const GRAVITY_PRESETS = [
   { id: "earth", label: "Earth", value: 9.81 },
   { id: "double", label: "2× Earth", value: 19.62 },
   { id: "jupiter", label: "Jupiter", value: 24.79 },
+  { id: "tenfold", label: "10× Earth", value: 98.1 },
 ] as const;
 
 export function fmt(value: number, unit = "", digits = 2): string {

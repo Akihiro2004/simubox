@@ -169,6 +169,7 @@ export function initialObjects(world: WorldId): SceneObject[] {
     case "space":
     case "math":
     case "globe":
+    case "optics":
       return [];
     case "workshop":
       return [

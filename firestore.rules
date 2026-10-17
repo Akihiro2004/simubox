@@ -14,7 +14,7 @@ service cloud.firestore {
         return d.keys().hasOnly(['id', 'title', 'world', 'updatedAt', 'updatedAtMs', 'scene', 'messages', 'plan', 'version'])
           && d.id == expId
           && d.title is string && d.title.size() > 0 && d.title.size() <= 80
-          && d.world in ['bedroom', 'court', 'lab', 'park', 'stage', 'space', 'ocean', 'math', 'globe', 'workshop']
+          && d.world in ['bedroom', 'court', 'lab', 'park', 'stage', 'space', 'ocean', 'math', 'globe', 'workshop', 'optics']
           && d.updatedAtMs is int
           && d.version == 1
           && d.messages is list && d.messages.size() <= 40

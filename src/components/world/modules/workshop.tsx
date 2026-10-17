@@ -9,6 +9,7 @@ import { useSim } from "@/lib/store";
 import { solveLever, waveDisplacement, waveSpeed } from "@/lib/engine/physics2";
 import { circuitResult, type Modules } from "@/lib/modules";
 import { Mat } from "../assets";
+import { RippleTank } from "./ripple";
 
 const fmt = (v: number, d = 2) => (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(d));
 const Tag = ({ children, tone }: { children: React.ReactNode; tone?: "fact" | "warning" }) => <div className={`tag flex items-center gap-1.5 px-2.5 py-0.5 text-[12px] ${tone ? `tag-dot tag-${tone}` : ""}`}>{children}</div>;
@@ -307,12 +308,13 @@ function Lever({ l, animate }: { l: NonNullable<Modules["lever"]>; animate: bool
 }
 
 export function WorkshopModules({ animate }: { animate: boolean }) {
-  const { circuit, wave, lever } = useSim((s) => s.modules);
+  const { circuit, wave, lever, ripple } = useSim((s) => s.modules);
   return (
     <>
       {circuit && <Circuit c={circuit} animate={animate} />}
       {wave && <Wave w={wave} animate={animate} />}
       {lever && <Lever l={lever} animate={animate} />}
+      {ripple && <RippleTank r={ripple} animate={animate} />}
     </>
   );
 }

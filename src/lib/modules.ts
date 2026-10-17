@@ -10,6 +10,8 @@ import type { CellKind } from "./engine/biology";
 import { EMPTY_TABLE, type PeriodicTableState } from "./periodic-table";
 import type { SceneObject } from "./world/scene";
 import { ASSETS, type WorldId } from "./world/catalog";
+import { TABLE, criticalAngle, elementImage, fresnelReflectance, lightSpeedIn, opticsPreset, refractiveIndex, signedFocal, sourcePosition, sourceWavelength, traceOptics, turningHits, type LightSource, type OpticKind, type OpticsSetup, type TraceResult } from "./engine/optics";
+import { PLAN, SIGNAL_KINDS, doppler, formatFrequency, formatLength, formatSpeed, formatStrength, gapSpread, reception, signalFrequency, signalLayout, signalWavelength, waterWave, type Reception, type SignalKind, type SignalLayout, type Wall, type WallMaterial } from "./engine/waves";
 
 export interface PlotFn {
   id: string;
@@ -41,6 +43,40 @@ export interface Mark {
   color: string;
 }
 
+export interface RippleState {
+  frequency: number; // Hz
+  /** Height of the ripples drawn (m); it doesn't change their speed. */
+  amplitude: number;
+  depth: number; // m
+  source: "point" | "two_point" | "plane";
+  /** Two dippers: distance between them (m). */
+  separation: number;
+  barrier: "none" | "wall" | "gap" | "double_slit" | "reflector";
+  gapWidth: number; // m
+  /** Where the barrier stands along the tank (m from the middle). */
+  barrierX: number;
+  reflectorAngle: number; // degrees
+  /** A glass plate makes the far half of the tank shallow (refraction). */
+  shallow: boolean;
+  shallowDepth: number; // m
+  /** A moving dipper (m/s) shows the Doppler effect. */
+  sourceSpeed: number;
+  view: "waves" | "intensity";
+}
+
+export interface SignalState {
+  kind: SignalKind;
+  /** Pitch of the sound (Hz); only used for sound. */
+  soundHz: number;
+  layout: SignalLayout;
+  walls: Wall[];
+  /** Where the router, speaker, mast or lamp is, on the floor plan (x, z in m). */
+  source: [number, number];
+  /** The phone, radio, listener or light meter. */
+  device: [number, number];
+  view: "both" | "waves" | "strength";
+}
+
 export interface Modules {
   periodicTable: PeriodicTableState | null;
   orbits: { mode: "solar_system" | "earth_moon" | "seasons"; planets: PlanetId[]; focus: PlanetId | "sun" | "moon" | null; daysPerSecond: number; labels: boolean; /** Planets moved to another distance (AU), e.g. "what if Earth and Neptune swapped?" */ distances: Partial<Record<PlanetId, number>> } | null;
@@ -52,9 +88,20 @@ export interface Modules {
   particles: { substance: SubstanceId; temperatureC: number } | null;
   cell: { kind: CellKind; highlight: string | null } | null;
   globe: { view: "globe" | "map"; spin: boolean; focus: string | null; marks: Mark[]; routes: { id: string; from: string; to: string }[] } | null;
+  /** Ripple tank (water waves) in the workshop. Older saves don't have the new modules. */
+  ripple?: RippleState | null;
+  /** Signals spreading through a floor plan, on the stage. */
+  signal?: SignalState | null;
+  /** The Light Lab's optics table. */
+  optics?: OpticsSetup | null;
 }
 
 export const ALL_PLANETS = Object.keys(PLANETS) as PlanetId[];
+
+export function signalDefaults(kind: SignalKind = "wifi_2_4", layout: SignalLayout = "apartment"): SignalState {
+  const plan = signalLayout(layout);
+  return { kind, soundHz: 500, layout, walls: plan.walls, source: plan.source, device: plan.device, view: "both" };
+}
 
 /** Starting state for each module when something switches it on. */
 export const MODULE_DEFAULTS: { [K in keyof Modules]-?: NonNullable<Modules[K]> } = {
@@ -68,6 +115,9 @@ export const MODULE_DEFAULTS: { [K in keyof Modules]-?: NonNullable<Modules[K]> 
   particles: { substance: "water", temperatureC: 20 },
   cell: { kind: "animal", highlight: null },
   globe: { view: "globe", spin: true, focus: null, marks: [], routes: [] },
+  ripple: { frequency: 1.5, amplitude: 0.012, depth: 0.08, source: "point", separation: 0.5, barrier: "none", gapWidth: 0.3, barrierX: 0.2, reflectorAngle: 30, shallow: false, shallowDepth: 0.02, sourceSpeed: 0, view: "waves" },
+  signal: signalDefaults(),
+  optics: opticsPreset("reflection"),
 };
 
 export function defaultModules(world: WorldId): Modules {
@@ -82,7 +132,101 @@ export function defaultModules(world: WorldId): Modules {
     particles: null,
     cell: null,
     globe: world === "globe" ? MODULE_DEFAULTS.globe : null,
+    ripple: null,
+    signal: null,
+    // The Light Lab opens with a laser and a mirror ready to play with.
+    optics: world === "optics" ? MODULE_DEFAULTS.optics : null,
   };
+}
+
+const traces = new WeakMap<OpticsSetup, TraceResult>();
+/** The traced light for the optics table (cached: the state object changes whenever the setup does). */
+export function opticsTrace(o: OpticsSetup): TraceResult {
+  let r = traces.get(o);
+  if (!r) traces.set(o, (r = traceOptics(o)));
+  return r;
+}
+
+/** What the signal's device receives right now. */
+export function signalReception(s: SignalState): Reception {
+  return reception(s.kind, s.source, s.device, s.walls, s.soundHz);
+}
+
+/** The ripple tank on the workshop mat: centre of its water surface and its half-extents (m). */
+export const RIPPLE_TANK = { center: [0, 0.92, 0.35] as [number, number, number], half: [1.6, 1.0] as [number, number] };
+/** The Light Lab's optical table: centre of its top (the rays run just above it). */
+export const OPTICS_TABLE = { center: [0, 0.86, 0] as [number, number, number] };
+/** Size an element gets when nothing says otherwise. */
+export const OPTIC_SIZE: Record<OpticKind, number> = { plane_mirror: 1, concave_mirror: 1.2, convex_mirror: 1.2, convex_lens: 1.2, concave_lens: 1.2, glass_block: 1.2, prism: 1.1, semicircle: 1.4, screen: 1.4, blocker: 0.4 };
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+const onPlan = (p: readonly number[] | undefined): [number, number] | undefined => (p ? [clamp(p[0], -PLAN.x, PLAN.x), clamp(p[1], -PLAN.z, PLAN.z)] : undefined);
+const onTable = (p: readonly number[]): [number, number] => [clamp(p[0], -TABLE.x, TABLE.x), clamp(p[1], -TABLE.z, TABLE.z)];
+
+export interface SignalPatch {
+  kind?: SignalKind;
+  soundHz?: number;
+  layout?: SignalLayout;
+  walls?: { id: string; from: readonly number[]; to: readonly number[]; material: WallMaterial }[];
+  allWalls?: WallMaterial;
+  source?: readonly number[];
+  device?: readonly number[];
+  view?: SignalState["view"];
+}
+/** A signal setup with some fields changed; a new layout brings its own walls and starting spots. */
+export function patchSignal(cur: SignalState, p: SignalPatch): SignalState {
+  let next: SignalState = { ...cur };
+  if (p.layout && p.layout !== cur.layout) {
+    const plan = signalLayout(p.layout);
+    next = { ...next, layout: p.layout, walls: plan.walls, source: plan.source, device: plan.device };
+  }
+  if (p.walls) next.walls = p.walls.map((x) => ({ id: x.id, from: onPlan(x.from)!, to: onPlan(x.to)!, material: x.material }));
+  if (p.allWalls) next.walls = next.walls.map((x) => ({ ...x, material: p.allWalls! }));
+  if (p.kind) next.kind = p.kind;
+  if (p.soundHz !== undefined) next.soundHz = p.soundHz;
+  next.source = onPlan(p.source) ?? next.source;
+  next.device = onPlan(p.device) ?? next.device;
+  if (p.view) next.view = p.view;
+  return next;
+}
+
+export interface OpticsPatch {
+  wavelengthNm?: number | null;
+  reachM?: number;
+  reflections?: boolean;
+  lighting?: "bright" | "dim";
+  sourceKind?: LightSource["kind"];
+  sourcePosition?: readonly number[];
+  angleDeg?: number;
+  color?: LightSource["color"];
+  rays?: number;
+  spread?: number;
+  aimAt?: string | null;
+  medium?: OpticsSetup["medium"];
+  normals?: boolean;
+  object?: { target: string; distanceM: number; heightM: number } | null;
+  mixing?: OpticsSetup["mixing"];
+}
+/** An optics setup with some fields changed. Placing the source by hand stops it aiming at an element. */
+export function patchOptics(cur: OpticsSetup, p: OpticsPatch): OpticsSetup {
+  const source: LightSource = { ...cur.source };
+  if (p.sourceKind) source.kind = p.sourceKind;
+  if (p.sourcePosition) {
+    [source.x, source.z] = onTable(p.sourcePosition);
+    source.aimAt = null;
+  }
+  if (p.angleDeg !== undefined) source.angleDeg = p.angleDeg;
+  if (p.color) { source.color = p.color; source.wavelengthNm = null; }
+  if (p.wavelengthNm !== undefined) source.wavelengthNm = p.wavelengthNm;
+  if (p.reachM !== undefined) source.reach = p.reachM;
+  if (p.rays !== undefined) source.rays = p.rays;
+  if (p.spread !== undefined) source.spread = p.spread;
+  if (p.aimAt !== undefined) {
+    if (!p.aimAt && cur.source.aimAt && !p.sourcePosition) [source.x, source.z] = sourcePosition(cur.source, cur.elements);
+    source.aimAt = p.aimAt;
+  }
+  const object = p.object === undefined ? cur.object : p.object && { target: p.object.target, distance: p.object.distanceM, height: p.object.heightM };
+  return { ...cur, source, medium: p.medium ?? cur.medium, normals: p.normals ?? cur.normals, object, mixing: p.mixing === undefined ? cur.mixing : p.mixing, reflections: p.reflections ?? cur.reflections, lighting: p.lighting ?? cur.lighting };
 }
 
 /** Ohm's-law result for the circuit module's state. */
@@ -111,9 +255,154 @@ export function massFor(material: MaterialId, volume: number): number {
 
 const f = (v: number, d = 2) => (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(d));
 const places = new Map(PLACES.map((p) => [p.id, p]));
+const deg1 = (v: number) => `${v.toFixed(1)}°`;
+
+export const REFRACTORS = ["glass_block", "prism", "semicircle"] as const;
+const isRefractor = (k: string) => (REFRACTORS as readonly string[]).includes(k);
+
+/** Optics readouts: of one element (arg), or of the first thing the main beam meets. */
+export const OPTICS_VALUES = ["incidence_angle", "reflection_angle", "refraction_angle", "critical_angle", "refractive_index", "light_speed_in", "deviation", "spread_angle", "focal_length", "object_distance", "image_distance", "magnification", "image_type", "beam_wavelength", "screen_power", "reflectance"] as const;
+function opticsValue(name: string, arg: string | undefined, o: OpticsSetup): string | undefined {
+  const tr = opticsTrace(o);
+  const hits = turningHits(arg ? tr.hits.filter((h) => h.elementId === arg) : tr.hits);
+  const byId = (id: string) => o.elements.find((e) => e.id === id);
+  switch (name) {
+    case "beam_wavelength":
+      return o.source.kind === "off" ? undefined : o.source.color === "white" && o.source.wavelengthNm == null ? "405–700 nm (9 wavelength samples)" : `${sourceWavelength(o.source).toFixed(0)} nm`;
+    case "screen_power": {
+      if (o.source.kind === "off") return undefined;
+      const spots = tr.spots.filter((spot) => !spot.diagram && (!arg || spot.elementId === arg));
+      if (arg && byId(arg)?.kind !== "screen") return undefined;
+      return `${(spots.reduce((total, spot) => total + spot.intensity, 0) * 100).toFixed(1)}%`;
+    }
+    case "reflectance": {
+      const hit = hits[0];
+      if (!hit || hit.kind === "absorb" || hit.kind === "lens") return undefined;
+      const fraction = hit.kind === "refract" ? fresnelReflectance(hit.n1, hit.n2, Math.cos(hit.incidenceDeg * Math.PI / 180)) : 1;
+      return `${(fraction * 100).toFixed(1)}%`;
+    }
+    case "incidence_angle": {
+      const h = hits[0];
+      return h && deg1(h.incidenceDeg);
+    }
+    case "reflection_angle": {
+      const h = hits.find((x) => x.kind === "reflect" || x.kind === "total_internal_reflection");
+      return h && h.outDeg !== null ? deg1(h.outDeg) : undefined;
+    }
+    case "refraction_angle": {
+      const h = hits.find((x) => x.kind === "refract");
+      return h && h.outDeg !== null ? deg1(h.outDeg) : undefined;
+    }
+    case "critical_angle":
+    case "refractive_index":
+    case "light_speed_in": {
+      const lit = o.elements.filter((e) => isRefractor(e.kind));
+      const target = arg ? byId(arg) : (lit.find((e) => tr.hits.some((h) => h.elementId === e.id)) ?? lit[0]);
+      if (!target || !isRefractor(target.kind)) return undefined;
+      const nm = sourceWavelength(o.source);
+      const n = refractiveIndex(target.material, nm);
+      if (name === "refractive_index") return n.toFixed(2);
+      if (name === "light_speed_in") return formatSpeed(lightSpeedIn(n));
+      const c = criticalAngle(n, refractiveIndex(o.medium, nm));
+      return c === null ? undefined : deg1(c);
+    }
+    case "deviation":
+      return tr.deviation === null ? undefined : deg1(tr.deviation);
+    case "spread_angle":
+      return tr.spread === null ? undefined : deg1(tr.spread);
+    case "focal_length": {
+      const target = arg ? byId(arg) : o.elements.find((e) => signedFocal(e) !== null);
+      return target && signedFocal(target) !== null ? `${target.focalLength.toFixed(2)} m` : undefined;
+    }
+    case "object_distance":
+    case "image_distance":
+    case "magnification":
+    case "image_type": {
+      const obj = o.object;
+      const target = obj ? byId(obj.target) : undefined;
+      const fs = target ? signedFocal(target) : null;
+      if (!obj || !target || (fs === null && target.kind !== "plane_mirror") || (arg && arg !== obj.target)) return undefined;
+      const r = elementImage(target, obj.distance);
+      if (name === "object_distance") return `${obj.distance.toFixed(2)} m`;
+      if (name === "image_type") return r.description;
+      if (r.imageDistance === null || r.magnification === null) return name === "image_distance" ? "infinitely far away" : undefined;
+      if (name === "magnification") return `${Math.abs(r.magnification).toFixed(2)}×`;
+      const mirror = target.kind.endsWith("mirror");
+      const where = r.real ? (mirror ? "in front of the mirror" : "behind the lens") : mirror ? "behind the mirror" : "on the same side as the object";
+      return `${Math.abs(r.imageDistance).toFixed(2)} m ${where}`;
+    }
+  }
+  return undefined;
+}
+
+export const WATER_VALUES = ["water_wave_speed", "water_wavelength", "water_period", "water_frequency", "water_depth", "water_regime", "shallow_wave_speed", "shallow_wavelength", "gap_width", "gap_wavelengths", "doppler_ahead", "doppler_behind"] as const;
+function waterValue(name: string, r: RippleState): string | undefined {
+  const w = waterWave(r.frequency, r.depth);
+  switch (name) {
+    case "water_wave_speed":
+      return formatSpeed(w.speed);
+    case "water_wavelength":
+      return formatLength(w.wavelength);
+    case "water_period":
+      return `${f(w.period)} s`;
+    case "water_frequency":
+      return formatFrequency(r.frequency);
+    case "water_depth":
+      return formatLength(r.depth);
+    case "water_regime":
+      return w.regime === "intermediate" ? "in between shallow and deep water" : `${w.regime} water`;
+    case "shallow_wave_speed":
+    case "shallow_wavelength": {
+      if (!r.shallow) return undefined;
+      const s = waterWave(r.frequency, r.shallowDepth);
+      return name === "shallow_wave_speed" ? formatSpeed(s.speed) : formatLength(s.wavelength);
+    }
+    case "gap_width":
+    case "gap_wavelengths":
+      if (r.barrier !== "gap" && r.barrier !== "double_slit") return undefined;
+      return name === "gap_width" ? formatLength(r.gapWidth) : `${gapSpread(w.wavelength, r.gapWidth).gapInWavelengths.toFixed(1)} wavelengths`;
+    case "doppler_ahead":
+    case "doppler_behind": {
+      if (!(r.sourceSpeed > 0) || r.source !== "point") return undefined;
+      const d = doppler(r.frequency, w.speed, r.sourceSpeed);
+      return formatFrequency(name === "doppler_ahead" ? d.ahead : d.behind);
+    }
+  }
+  return undefined;
+}
+
+export const SIGNAL_VALUES = ["signal_strength", "signal_bars", "signal_distance", "signal_walls", "wall_loss", "path_loss", "signal_wavelength", "signal_frequency", "signal_speed"] as const;
+function signalValue(name: string, s: SignalState): string | undefined {
+  const r = signalReception(s);
+  const band = SIGNAL_KINDS[s.kind].band;
+  switch (name) {
+    case "signal_strength":
+      return formatStrength(s.kind, r);
+    case "signal_bars":
+      return band === "sound" || band === "light" ? r.quality : `${r.bars} of 4 bars (${r.quality})`;
+    case "signal_distance":
+      return formatLength(r.distance);
+    case "signal_walls":
+      return r.walls.length ? `${r.walls.length} wall${r.walls.length > 1 ? "s" : ""} (${r.walls.map((x) => x.material).join(", ")})` : "no walls";
+    case "wall_loss":
+      return Number.isFinite(r.wallLoss) ? `${Math.round(r.wallLoss)} dB` : "all of it, because solid walls block light";
+    case "path_loss":
+      return `${Math.round(r.pathLoss)} dB`;
+    case "signal_wavelength":
+      return formatLength(signalWavelength(s.kind, s.soundHz));
+    case "signal_frequency":
+      return formatFrequency(signalFrequency(s.kind, s.soundHz));
+    case "signal_speed":
+      return formatSpeed(SIGNAL_KINDS[s.kind].speed);
+  }
+  return undefined;
+}
 
 /** Value for {{name}} / {{name:arg}} from module state; undefined if not applicable. */
 export function moduleValue(name: string, arg: string | undefined, m: Modules, objects: Record<string, SceneObject>): string | undefined {
+  if ((OPTICS_VALUES as readonly string[]).includes(name)) return m.optics ? opticsValue(name, arg, m.optics) : undefined;
+  if ((WATER_VALUES as readonly string[]).includes(name)) return m.ripple ? waterValue(name, m.ripple) : undefined;
+  if ((SIGNAL_VALUES as readonly string[]).includes(name)) return m.signal ? signalValue(name, m.signal) : undefined;
   switch (name) {
     case "current":
     case "total_resistance":
@@ -216,7 +505,7 @@ export function moduleValue(name: string, arg: string | undefined, m: Modules, o
 /** Compact module summary sent to the AI with follow-up questions. */
 export function modulesSummary(m: Modules): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(m)) if (v !== null) out[k] = v;
+  for (const [k, v] of Object.entries(m)) if (v != null) out[k] = v;
   if (m.orbits) out.orbitDay = Math.floor(orbitClock.day);
   return out;
 }

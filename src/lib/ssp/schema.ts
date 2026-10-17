@@ -11,6 +11,8 @@ import { SHAPE_KINDS } from "../engine/geometry";
 import { CELL_KINDS, ORGANELLES } from "../engine/biology";
 import { ENV_PRESETS, LIGHTS } from "../environment";
 import { PeriodicTableFields } from "../periodic-table";
+import { LIGHT_COLOR_IDS, OPTIC_KINDS, OPTIC_MATERIAL_IDS, OPTIC_PRESETS, SOURCE_KINDS, TABLE } from "../engine/optics";
+import { PLAN, SIGNAL_KIND_IDS, SIGNAL_LAYOUTS, WALL_MATERIALS } from "../engine/waves";
 
 export const SCHEMA_VERSION = 1;
 
@@ -21,6 +23,11 @@ const Id = z.string().regex(/^[a-z][a-z0-9_]{0,31}$/).describe("snake_case id");
 const Color = z.string().regex(/^#[0-9a-fA-F]{6}$/).describe("hex color like #ff8800");
 const Text = (max: number) => z.string().min(1).max(max);
 const Physics = z.enum(["dynamic", "static", "none"]).describe("dynamic = falls/collides, static = fixed collider, none = no physics");
+/** [x, z] on the optics table / the signal floor plan (the player keeps z inside the narrower edge). */
+const tableXZ = z.array(num(-TABLE.x, TABLE.x)).length(2);
+const planXZ = z.array(num(-PLAN.x, PLAN.x)).length(2);
+export const RIPPLE_SOURCES = ["point", "two_point", "plane"] as const;
+export const RIPPLE_BARRIERS = ["none", "wall", "gap", "double_slit", "reflector"] as const;
 
 /** Placeholders the client fills from deterministic engine results. */
 export const PLACEHOLDERS = [
@@ -30,7 +37,15 @@ export const PLACEHOLDERS = [
   "torque_left", "torque_right", "balance_distance",
   "phase", "rms_speed", "temperature",
   "day", "season", "moon_phase", "moon_lit",
+  "water_wave_speed", "water_wavelength", "water_period", "water_frequency", "water_depth", "water_regime",
+  "shallow_wave_speed", "shallow_wavelength", "gap_width", "gap_wavelengths", "doppler_ahead", "doppler_behind",
+  "signal_strength", "signal_bars", "signal_distance", "signal_walls", "wall_loss", "path_loss", "signal_wavelength", "signal_frequency", "signal_speed",
+  "incidence_angle", "reflection_angle", "refraction_angle", "critical_angle", "refractive_index", "light_speed_in",
+  "deviation", "spread_angle", "focal_length", "object_distance", "image_distance", "magnification", "image_type",
+  "beam_wavelength", "screen_power", "reflectance",
 ] as const;
+/** Optics placeholders that can name one element, e.g. {{refraction_angle:block}}. */
+export const OPTIC_ARG_PLACEHOLDERS = ["incidence_angle", "reflection_angle", "refraction_angle", "critical_angle", "refractive_index", "light_speed_in", "focal_length", "screen_power", "reflectance"] as const;
 /** Placeholders that take an argument, written {{name:arg}}. */
 export const ARG_PLACEHOLDERS = {
   volume: "shape id",
@@ -45,7 +60,8 @@ export const ARG_PLACEHOLDERS = {
   sunlight_change: "planet id (sunlight now compared with its own real orbit, e.g. after a swap)",
   radius_km: "planet id",
   distance_km: "two place or mark ids joined by ~, e.g. london~new_york",
-} as const;
+  ...Object.fromEntries(OPTIC_ARG_PLACEHOLDERS.map((p) => [p, "optics element id (the main beam's first meeting with it)"])),
+} as Record<string, string>;
 
 /**
  * Every changeable field of each simulation module, for set_module. Patches
@@ -60,6 +76,9 @@ export const MODULE_FIELDS = {
   particles: z.strictObject({ substance: z.enum(SUBSTANCE_IDS), temperatureC: num(-273, 3500) }).partial(),
   cell: z.strictObject({ kind: z.enum(CELL_KINDS), highlight: z.enum(Object.keys(ORGANELLES) as [string, ...string[]]).nullable() }).partial(),
   globe: z.strictObject({ view: z.enum(["globe", "map"]), spin: z.boolean(), focus: z.enum(PLACE_IDS).nullable() }).partial(),
+  ripple: z.strictObject({ frequencyHz: num(0.3, 3), amplitude: num(0.004, 0.03), depthM: num(0.02, 0.5), source: z.enum(RIPPLE_SOURCES), separationM: num(0.1, 1.2), barrier: z.enum(RIPPLE_BARRIERS), gapWidthM: num(0.05, 1), barrierX: num(-1, 1.3), reflectorAngleDeg: num(-60, 60), shallow: z.boolean(), shallowDepthM: num(0.01, 0.2), sourceSpeed: num(0, 0.5), view: z.enum(["waves", "intensity"]) }).partial(),
+  signal: z.strictObject({ kind: z.enum(SIGNAL_KIND_IDS), soundHz: num(50, 8000), layout: z.enum(SIGNAL_LAYOUTS), walls: z.array(z.object({ id: Id, from: planXZ, to: planXZ, material: z.enum(WALL_MATERIALS) })).max(16), allWalls: z.enum(WALL_MATERIALS), source: planXZ, device: planXZ, view: z.enum(["both", "waves", "strength"]) }).partial(),
+  optics: z.strictObject({ sourceKind: z.enum(SOURCE_KINDS), sourcePosition: tableXZ, angleDeg: num(-360, 360), color: z.enum(LIGHT_COLOR_IDS), wavelengthNm: num(380, 780).nullable(), reachM: num(0.1, 4), reflections: z.boolean(), lighting: z.enum(["bright", "dim"]), rays: z.number().int().min(1).max(9), spread: num(0.1, 120), aimAt: Id.nullable(), medium: z.enum(["air", "water"]), normals: z.boolean(), object: z.object({ target: Id, distanceM: num(0.2, 2.6), heightM: num(-0.6, 0.6) }).nullable(), mixing: z.object({ red: z.boolean(), green: z.boolean(), blue: z.boolean() }).nullable() }).partial(),
 } as const;
 export type ModuleName = keyof typeof MODULE_FIELDS;
 export const MODULE_NAMES = Object.keys(MODULE_FIELDS) as [ModuleName, ...ModuleName[]];
@@ -101,7 +120,7 @@ export const Command = z.discriminatedUnion("op", [
     value: z.union([z.string().max(40), z.number().min(-1000).max(1000), z.boolean()]),
   }),
   z.object({ op: z.literal("highlight_object"), id: Id, on: z.boolean() }),
-  z.object({ op: z.literal("set_gravity"), gravity: vec3(LIMITS.maxGravity).describe("m/s^2 vector; Earth is [0, -9.81, 0]") }),
+  z.object({ op: z.literal("set_gravity"), gravity: vec3(LIMITS.maxGravity).describe("m/s² vector; Earth [0,-9.81,0], 10× Earth [0,-98.1,0]. Also updates the court trajectory for downward gravity.") }),
   z.object({ op: z.literal("apply_impulse"), id: Id.or(z.literal("all")), impulse: vec3(LIMITS.maxImpulse).describe("N·s; 'all' hits every dynamic object with a gentle random spread") }),
   z.object({ op: z.literal("apply_force"), id: Id, force: vec3(200), durationMs: num(50, 5000) }),
   z.object({ op: z.literal("set_velocity"), id: Id, velocity: vec3(LIMITS.maxSpeed) }),
@@ -112,7 +131,7 @@ export const Command = z.discriminatedUnion("op", [
     speed: num(0, 400),
     unit: z.enum(["m/s", "km/h", "mph"]),
     angleDeg: num(0, 90),
-    gravity: num(0, 30).optional().describe("m/s^2, default 9.81"),
+    gravity: num(0, LIMITS.maxGravity).optional().describe("m/s²; omit to keep the current downward gravity (a new scene starts at 9.81). 10× Earth = 98.1."),
     heightM: num(0, 20).optional(),
     ball: z.enum(["basketball", "soccer_ball", "tennis_ball", "bowling_ball", "ball_red"]).optional(),
   }),
@@ -146,8 +165,8 @@ export const Command = z.discriminatedUnion("op", [
   }),
   z.object({
     op: z.literal("show_measurement"),
-    metric: z.enum(["range", "flight_time", "max_height", "impact_speed", "gravity", "bond_angle", "current", "total_resistance", "power", "wave_speed", "torque_left", "torque_right", "phase", "rms_speed", "day", "season", "moon_phase", "volume", "surface_area", "float_fraction"]),
-    target: Id.optional().describe("shape or object id for volume, surface_area, float_fraction"),
+    metric: z.enum(["range", "flight_time", "max_height", "impact_speed", "gravity", "bond_angle", "current", "total_resistance", "power", "wave_speed", "torque_left", "torque_right", "phase", "rms_speed", "day", "season", "moon_phase", "volume", "surface_area", "float_fraction", "water_wave_speed", "water_wavelength", "signal_strength", "signal_bars", "incidence_angle", "reflection_angle", "refraction_angle", "critical_angle", "image_distance", "magnification", "deviation", "beam_wavelength", "screen_power", "reflectance"]),
+    target: Id.optional().describe("shape or object id for volume, surface_area, float_fraction; optics element id for the angles"),
   }),
   z.object({ op: z.literal("clear_annotations") }),
   z.object({ op: z.literal("focus_camera"), target: Id.optional(), position: Pos.optional(), zoom: z.enum(["close", "medium", "wide"]).optional() }),
@@ -234,7 +253,7 @@ export const Command = z.discriminatedUnion("op", [
     set: z
       .record(z.string(), z.unknown())
       .describe(
-        "only the fields to change. orbits: mode, planets, focus, daysPerSecond, labels, distances ({planet: AU} moves planets to new orbits, e.g. {earth: 30.07, neptune: 1} swaps them; {} puts every planet back). fluid: fluid. circuit: layout, voltage, bulbs, resistanceOhms, switchClosed, brokenBulbs (1-based bulb numbers that are blown; [] fixes them all). wave: kind, amplitude, frequency, wavelength. lever: leftMassKg, leftDistanceM, rightMassKg, rightDistanceM. particles: substance, temperatureC. cell: kind, highlight (part or null). globe: view, spin, focus (place id or null)",
+        "only the fields to change. orbits: mode, planets, focus, daysPerSecond, labels, distances ({planet: AU} moves planets to new orbits, e.g. {earth: 30.07, neptune: 1} swaps them; {} puts every planet back). fluid: fluid. circuit: layout, voltage, bulbs, resistanceOhms, switchClosed, brokenBulbs (1-based bulb numbers that are blown; [] fixes them all). wave: kind, amplitude, frequency, wavelength. lever: leftMassKg, leftDistanceM, rightMassKg, rightDistanceM. particles: substance, temperatureC. cell: kind, highlight (part or null). globe: view, spin, focus (place id or null). ripple: frequencyHz, depthM, source, separationM, barrier, gapWidthM, barrierX, reflectorAngleDeg, shallow, shallowDepthM, sourceSpeed, view, amplitude. signal: kind, soundHz, layout (resets the walls), walls ([{id, from:[x,z], to:[x,z], material}] replaces all), allWalls (one material for every wall), source [x,z], device [x,z], view. optics: sourceKind (laser|ray_box|lamp|off), sourcePosition [x,z], angleDeg, color, rays, spread (ray_box width m / lamp fan degrees), aimAt (element id or null), medium (air|water), normals, object ({target: lens or curved mirror id, distanceM, heightM} or null), mixing ({red, green, blue} spotlights or null)",
       ),
   }),
   z.object({
@@ -285,6 +304,46 @@ export const Command = z.discriminatedUnion("op", [
   }),
   z.object({ op: z.literal("connect_places"), id: Id, from: Id, to: Id }),
   z.object({
+    op: z.literal("show_ripple_tank"),
+    source: z.enum(RIPPLE_SOURCES).optional().describe("point = one dipper; two_point = two dippers in step (interference); plane = a straight bar (straight waves)"),
+    frequencyHz: num(0.3, 3).optional(),
+    depthM: num(0.02, 0.5).optional().describe("water depth; shallower water makes slower, shorter waves"),
+    barrier: z.enum(RIPPLE_BARRIERS).optional().describe("wall reflects; gap and double_slit make diffraction; reflector is an angled flat barrier"),
+    gapWidthM: num(0.05, 1).optional(),
+    separationM: num(0.1, 1.2).optional().describe("two_point: distance between the dippers"),
+    shallow: z.boolean().optional().describe("a glass plate makes the far half shallow: waves slow down and bend (refraction)"),
+    sourceSpeed: num(0, 0.5).optional().describe("m/s; a moving dipper shows the Doppler effect"),
+    view: z.enum(["waves", "intensity"]).optional().describe("intensity shows where waves add up and where they cancel"),
+  }),
+  z.object({
+    op: z.literal("show_signal"),
+    kind: z.enum(SIGNAL_KIND_IDS),
+    layout: z.enum(SIGNAL_LAYOUTS).optional().describe("floor plan; default apartment"),
+    source: z.array(num(-PLAN.x, PLAN.x)).length(2).optional().describe("[x, z] of the router, speaker, mast or lamp (x -3.6..3.6, z -2.6..2.6)"),
+    device: z.array(num(-PLAN.x, PLAN.x)).length(2).optional().describe("[x, z] of the phone, radio or listener"),
+    soundHz: num(50, 8000).optional().describe("pitch for kind sound"),
+    view: z.enum(["both", "waves", "strength"]).optional().describe("waves = the moving wave fronts; strength = a coloured map of signal strength"),
+  }),
+  z.object({
+    op: z.literal("show_optics"),
+    preset: z.enum(OPTIC_PRESETS),
+    color: z.enum(LIGHT_COLOR_IDS).optional().describe("white splits into a rainbow in a prism"),
+    angleDeg: num(-360, 360).optional().describe("beam direction on the table (0 = +x, 90 = +z); aimed presets keep pointing at their element"),
+    material: z.enum(OPTIC_MATERIAL_IDS).optional().describe("for the blocks, prisms and semicircles"),
+  }),
+  z.object({
+    op: z.literal("place_optic"),
+    id: Id,
+    element: z.enum(OPTIC_KINDS),
+    position: z.array(num(-TABLE.x, TABLE.x)).length(2).describe("[x, z] on the table (x -2.8..2.8, z -1.6..1.6); an existing id moves that element"),
+    rotationDeg: num(-360, 360).optional().describe("0 = its axis (or normal) along +x"),
+    sizeM: num(0.2, 4.8).optional().describe("length across its face"),
+    widthM: num(0.1, 2).optional().describe("glass_block thickness along its axis"),
+    focalLengthM: num(0.2, 3).optional(),
+    material: z.enum(OPTIC_MATERIAL_IDS).optional(),
+  }),
+  z.object({ op: z.literal("remove_optic"), id: Id }),
+  z.object({
     op: z.literal("show_card"),
     id: Id,
     title: Text(60),
@@ -309,7 +368,7 @@ export const Step = z.object({
 });
 export type Step = z.infer<typeof Step>;
 
-export const CAPABILITIES = ["gravity", "projectile", "molecule", "atom", "orbits", "buoyancy", "graph", "geometry", "circuit", "waves", "lever", "matter", "cell", "globe", "concept", "none"] as const;
+export const CAPABILITIES = ["gravity", "projectile", "molecule", "atom", "orbits", "buoyancy", "graph", "geometry", "circuit", "waves", "lever", "matter", "cell", "globe", "concept", "none", "light", "signal"] as const;
 export type CapabilityId = (typeof CAPABILITIES)[number];
 
 export const ScenePlan = z.object({

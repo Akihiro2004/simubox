@@ -20,6 +20,8 @@ import { useSim } from "@/lib/store";
 import { GardenPark } from "./garden-park";
 import { PeriodicTable } from "./periodic-table";
 import { LunarGround } from "./lunar-ground";
+import { OpticalTable, OpticsBackWall, SpectrumPoster } from "./optics-lab";
+import { OpticsDecor } from "./optics-decor";
 
 const S = { castShadow: true, receiveShadow: true } as const;
 const HALF = 4.08; // wall centre-line distance from the room centre
@@ -342,6 +344,13 @@ export function WorldDecor({ world, animate }: { world: WorldId; animate: boolea
       return (
         <Room floor="#cdb08a" base="#8c9a91" wall="#e8ebee" animate={animate} decor={{ "-z": <WorkshopWall />, "-x": <><Window x={-1.4} /><Artwork x={1.3} /></>, "+x": <Window x={0.6} />, "+z": <><Door x={-1.8} /><StudyWall /></> }}>
           <WorkshopInterior />
+        </Room>
+      );
+    case "optics":
+      return (
+        <Room floor="#d9d6ca" base="#809b9f" wall="#e5ece8" animate={animate} decor={{ "-z": <OpticsBackWall />, "-x": <SpectrumPoster />, "+z": <Door x={-1.8} /> }}>
+          <OpticalTable />
+          <OpticsDecor />
         </Room>
       );
   }

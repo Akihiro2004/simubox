@@ -421,8 +421,8 @@ export default function LandingPage() {
     ),
     worlds: (
       <>
-        <CardHead label="Ten worlds" dot="var(--accent)" />
-        <h2 className="text-[22px] font-extrabold leading-tight">Pick from ten little worlds.</h2>
+        <CardHead label={`${WORLD_ITEMS.length} worlds`} dot="var(--accent)" />
+        <h2 className="text-[22px] font-extrabold leading-tight">Pick from {WORLD_ITEMS.length} little worlds.</h2>
         <p className="mt-1.5 text-[15px] font-semibold leading-relaxed text-ink-2">Scroll to spin through them and tap one to jump in. Or just ask, and Simu picks the right one for you.</p>
         <div className="mt-4 flex items-center justify-center gap-3 text-[12px] font-semibold text-ink-3">
           <Link href="/credits" className="hover:text-ink">
@@ -567,7 +567,7 @@ export default function LandingPage() {
 
           <section data-chapter="worlds" className="relative h-[230dvh]">
             <div className="sticky top-0 flex h-dvh items-start justify-center overflow-hidden pt-[13dvh] [perspective:1500px] sm:items-center sm:pl-[400px] sm:pt-0">
-              <div className={motion ? "[transform:translateZ(calc(var(--r)*-1))] [transform-style:preserve-3d] [--r:300px] sm:[--r:400px]" : "contents"}>
+              <div className={motion ? "[transform:translateZ(calc(var(--r)*-1))] [transform-style:preserve-3d] [--r:330px] sm:[--r:440px]" : "contents"}>
                 <div
                   className={
                     motion
@@ -584,7 +584,7 @@ export default function LandingPage() {
                         before={() => openWorld(w.id)}
                         title={w.hint}
                         className={`world-tile liquid btn flex flex-col overflow-hidden rounded-[20px] p-1.5 ${motion ? "absolute inset-0 [backface-visibility:hidden]" : "relative h-[150px]"}`}
-                        style={motion ? { transform: `rotateY(${i * 36}deg) translateZ(var(--r))` } : undefined}
+                        style={motion ? { transform: `rotateY(${(i * 360) / WORLD_ITEMS.length}deg) translateZ(var(--r))` } : undefined}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element -- local snapshot */}
                         <img src={`/worlds/${w.id}.webp`} alt="" width={720} height={480} loading="lazy" className="min-h-0 w-full flex-1 rounded-[14px] object-cover" />

@@ -59,6 +59,33 @@ export const CAPABILITY_DEFS: CapabilityDef[] = [
       "Build an illustrated explanation in any world from catalog assets, primitives, characters, labels and arrows (e.g. photosynthesis with plant, sun and labelled arrows). It is an illustration, not a simulation: set supportLevel 'visual'.",
     keywords: /photosynth|plant|cell|water cycle|rain|evaporat|solar system|planet|orbit|season|day and night|circuit|electric|magnet|food chain|ecosystem|fraction|geometry|shape|volume|area|fotosintesis|tumbuhan|siklus|tata surya|listrik/i,
   },
+  {
+    id: "light",
+    name: "Light Lab optics table",
+    world: "optics",
+    support: "simulated",
+    summary:
+      "Geometric optics in a bright Light Lab: reflection, Snell refraction, Fresnel power, total internal reflection, dispersion, plane-mirror images, ideal thin lenses and spherical mirrors (paraxial image prediction). Set exact wavelength, source distance, ray count, elements, room lighting and RGB projection. Engine readouts include screen power and reflectance. show_optics, set_module optics, place_optic/remove_optic.",
+    keywords: /reflect|mirror|refract|lens|prism|rainbow|laser|periscope|total internal|optic|fibre|fiber|light ray|ray of light|beam of light|shadow|colou?r of light|mix(ing)? colou?r|magnif|focal|bent straw|pantul|cermin|bias|lensa|prisma|pelangi|bayangan|cahaya/i,
+  },
+  {
+    id: "signal",
+    name: "Signal floor plan",
+    world: "stage",
+    support: "simulated",
+    summary:
+      "show_signal: Wi-Fi, Bluetooth, 4G/5G, FM/AM radio, sound or light spreading through a floor plan with walls of different materials. Real strength map (path loss plus per-wall loss) and a wave simulation of the fronts (reflections, shadows, doorways).",
+    keywords: /wi-?fi|signal|router|bluetooth|\b[45]g\b|radio wave|antenna|reception|dead zone|microwave|electromagnetic|sinyal|gelombang radio|jaringan/i,
+  },
+  {
+    id: "waves",
+    name: "Ripple tank and wave rope",
+    world: "workshop",
+    support: "simulated",
+    summary:
+      "show_ripple_tank: real water waves (speed and wavelength from frequency and depth), interference from two dippers, diffraction through gaps, reflection, refraction over a shallow plate, Doppler effect. show_wave: a rope wave with v = f × λ.",
+    keywords: /ripple|water wave|ocean wave|wave pool|tsunami|wavelength|frequency|interference|diffraction|doppler|amplitude|gelombang air|riak|panjang gelombang|frekuensi/i,
+  },
 ];
 
 export function matchCapabilities(prompt: string): CapabilityId[] {

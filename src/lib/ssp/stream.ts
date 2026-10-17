@@ -73,7 +73,7 @@ export type StepEvent = { type: "begin"; plan: ScenePlan } | { type: "plan_step"
  * playable. Every step goes through the same normalize + validate path as a
  * whole plan (re-run on the prefix, so ids spawned in earlier steps count).
  */
-export function createStepStreamer(scene: Pick<SceneSnapshot, "world" | "objects" | "characters"> & { environment?: Record<string, unknown>; layouts?: SceneSnapshot["layouts"] }, lang: "en" | "id") {
+export function createStepStreamer(scene: Pick<SceneSnapshot, "world" | "objects" | "characters"> & Partial<Pick<SceneSnapshot, "gravity" | "projectile">> & { environment?: Record<string, unknown>; layouts?: SceneSnapshot["layouts"]; modules?: Record<string, unknown> }, lang: "en" | "id") {
   const emitted: Step[] = [];
   let last: Extract<ValidationResult, { ok: true }> | null = null;
   let scanned = 0;
@@ -87,7 +87,7 @@ export function createStepStreamer(scene: Pick<SceneSnapshot, "world" | "objects
     } catch {
       return [];
     }
-    const r = validatePlan(normalizePlan({ ...scan.head, steps: raw }, lang), scene);
+    const r = validatePlan(normalizePlan({ ...scan.head, steps: raw }, lang), scene, { partial: true });
     if (!r.ok) return [];
     scanned = scan.steps.length;
     last = r;

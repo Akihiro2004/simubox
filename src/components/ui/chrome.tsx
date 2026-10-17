@@ -1,6 +1,6 @@
 "use client";
 
-import { Bed, Bookmark, Clock, FlaskConical, Globe, LogIn, LogOut, Menu, MessageCircleQuestion, MessageSquare, Orbit, Plus, Settings, Shapes, Sigma, Trash, TreePine, Trophy, User, Droplets, Volume2, VolumeX, Wrench, X } from "lucide-react";
+import { Bed, Bookmark, Clock, FlaskConical, Globe, Lightbulb, LogIn, LogOut, Menu, MessageCircleQuestion, MessageSquare, Orbit, Plus, Settings, Shapes, Sigma, Trash, TreePine, Trophy, User, Droplets, Volume2, VolumeX, Wrench, X } from "lucide-react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
@@ -11,7 +11,8 @@ import { MorphPanel, useViewport } from "./morph";
 import { ExplanationContent, useExplanationShown } from "./lesson";
 import { signIn, signOutUser, useAuth } from "@/lib/firebase";
 import { deleteExperiment, listExperiments, restoreExperiment, saveExperiment, type SavedExperiment } from "@/lib/saves";
-import { cancelPlayback } from "@/lib/player";
+import { cancelPlayback, resolvePlaceholder } from "@/lib/player";
+import { fillProse } from "@/lib/ssp/validate";
 import { stopSpeaking, ttsSupported } from "@/lib/tts";
 import type { WorldId } from "@/lib/world/catalog";
 
@@ -24,7 +25,8 @@ export const WORLD_ITEMS: { id: WorldId; name: string; hint: string; icon: typeo
   { id: "ocean", name: "Ocean dock", hint: "Floating, sinking and density", icon: Droplets },
   { id: "math", name: "Math grid", hint: "Graphs, shapes, area and volume", icon: Sigma },
   { id: "globe", name: "Globe", hint: "Countries, places and distances", icon: Globe },
-  { id: "workshop", name: "Workshop", hint: "Circuits, levers and waves", icon: Wrench },
+  { id: "workshop", name: "Workshop", hint: "Circuits, levers, waves and ripples", icon: Wrench },
+  { id: "optics", name: "Light lab", hint: "Mirrors, lenses, prisms and rainbows", icon: Lightbulb },
   { id: "stage", name: "Blank stage", hint: "Anything else, as a diagram", icon: Shapes },
 ];
 
@@ -459,7 +461,7 @@ function TranscriptContent() {
               style={{ transformOrigin: m.role === "user" ? "100% 100%" : "0% 100%" }}
               className={`max-w-[88%] rounded-[18px] px-3 py-2 text-[14px] font-semibold leading-snug ${m.role === "user" ? "self-end bg-[var(--ink)] text-white" : m.speech ? "bg-white/80 text-ink-2" : "bg-white text-ink"}`}
             >
-              {m.text}
+              {m.role === "assistant" ? fillProse(m.text, resolvePlaceholder) : m.text}
             </motion.li>
           ))}
         </AnimatePresence>
