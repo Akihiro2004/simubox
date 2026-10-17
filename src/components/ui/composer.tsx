@@ -10,7 +10,7 @@ import { idToken } from "@/lib/firebase";
 const BASE = "Ask anything to simulate…";
 const LINE = 22;
 const MAX_H = LINE * 5 + 22; // five lines plus vertical padding
-const STARTERS = [
+export const STARTERS = [
   "What if gravity disappeared in my room?",
   "Throw a basketball at 40° and 20 km/h",
   "Why is a water molecule bent?",

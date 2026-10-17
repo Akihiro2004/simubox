@@ -1,5 +1,5 @@
-import SimuApp from "@/components/SimuApp";
+import LandingPage from "@/components/LandingPage";
 
 export default function Home() {
-  return <SimuApp />;
+  return <LandingPage />;
 }

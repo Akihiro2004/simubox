@@ -10,7 +10,7 @@ import { cancelPlayback } from "@/lib/player";
 import { stopSpeaking, ttsSupported } from "@/lib/tts";
 import type { WorldId } from "@/lib/world/catalog";
 
-const WORLD_ITEMS: { id: WorldId; name: string; hint: string; icon: typeof Bed }[] = [
+export const WORLD_ITEMS: { id: WorldId; name: string; hint: string; icon: typeof Bed }[] = [
   { id: "bedroom", name: "Bedroom", hint: "Gravity, pushes and falling", icon: Bed },
   { id: "court", name: "Sports court", hint: "Throwing and flight paths", icon: Trophy },
   { id: "lab", name: "Science lab", hint: "Atoms and molecules", icon: FlaskConical },
@@ -22,6 +22,23 @@ const WORLD_ITEMS: { id: WorldId; name: string; hint: string; icon: typeof Bed }
   { id: "workshop", name: "Workshop", hint: "Circuits, levers and waves", icon: Wrench },
   { id: "stage", name: "Blank stage", hint: "Anything else, as a diagram", icon: Shapes },
 ];
+
+export function openWorld(id: WorldId) {
+  cancelPlayback();
+  const s = useSim.getState();
+  s.loadWorld(id);
+  s.set({ topic: null });
+  if (id === "lab") {
+    useSim.getState().upsertObject({ id: "water", type: "molecule", molecule: "H2O", position: [0, 2.1, 0], rotation: [0, 0, 0], scale: 1, physics: "none", massKg: 1, bounciness: 0, drag: 0, visible: true, version: 0 });
+  }
+}
+
+export function resetToNewExperiment() {
+  cancelPlayback();
+  const s = useSim.getState();
+  s.loadWorld("bedroom");
+  s.set({ messages: [], explanation: null, followUps: [], lastPlan: null, experimentId: null, experimentTitle: null, draft: "", formula: null, metrics: [], topic: null });
+}
 
 const toolClass = "glass btn grid h-11 w-11 place-items-center rounded-full";
 
@@ -121,7 +138,7 @@ function AccountButton({ photo, name }: { photo: string | null; name: string | n
   );
 }
 
-function ago(ms: number) {
+export function ago(ms: number) {
   const m = Math.round((Date.now() - ms) / 60000);
   if (m < 1) return "Just now";
   if (m < 60) return `${m} min ago`;
@@ -186,9 +203,7 @@ export function MenuPanel() {
       <button
         className="btn btn-accent flex h-12 w-full items-center justify-center gap-2 rounded-[14px] text-[15px] font-extrabold"
         onClick={() => {
-          cancelPlayback();
-          useSim.getState().loadWorld("bedroom");
-          set({ messages: [], explanation: null, followUps: [], lastPlan: null, experimentId: null, experimentTitle: null, draft: "", formula: null, metrics: [], topic: null });
+          resetToNewExperiment();
           close();
         }}
       >
@@ -204,10 +219,7 @@ export function MenuPanel() {
             title={w.name}
             hint={w.hint}
             onClick={() => {
-              cancelPlayback();
-              useSim.getState().loadWorld(w.id);
-              set({ topic: null });
-              if (w.id === "lab") useSim.getState().upsertObject({ id: "water", type: "molecule", molecule: "H2O", position: [0, 2.1, 0], rotation: [0, 0, 0], scale: 1, physics: "none", massKg: 1, bounciness: 0, drag: 0, visible: true, version: 0 });
+              openWorld(w.id);
               close();
             }}
           />
@@ -284,6 +296,9 @@ export function MenuPanel() {
         <MenuRow icon={<MessageSquare size={16} />} title="Conversation" hint="Everything you asked and Simu said" onClick={() => set({ transcriptOpen: true, menuOpen: false })} />
       </div>
       <div className="flex gap-4 px-2 pb-1 pt-3 text-[13px] font-semibold text-ink-3">
+        <Link href="/" className="hover:text-ink" onClick={close}>
+          Home
+        </Link>
         <Link href="/credits" className="hover:text-ink">
           About and credits
         </Link>

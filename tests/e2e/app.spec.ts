@@ -8,10 +8,16 @@ async function ask(page: Page, text: string) {
   await box.press("Enter");
 }
 
-test("loads the world, menu, settings and canvas", async ({ page }) => {
+test("loads the landing page at / and navigates to the 3D studio at /app", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
+  await expect(page.getByRole("heading", { name: /Ask anything\. Watch it come to life\./i })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Try a mini experiment" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Saved experiments/i })).toBeVisible();
+
+  await page.getByRole("link", { name: /Open studio/i }).first().click();
+  await expect(page).toHaveURL(/\/app$/);
   await expect(page.locator("canvas")).toBeVisible();
   await expect(page.getByRole("textbox", { name: /ask simubox/i })).toBeVisible();
 
@@ -30,7 +36,7 @@ test("loads the world, menu, settings and canvas", async ({ page }) => {
 });
 
 test("gravity lesson: prediction question, zero gravity, honest offline badge", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/app");
   await expect(page.locator("canvas")).toBeVisible();
   await ask(page, "What happens if gravity disappears in my bedroom?");
   // The answer card steps aside while the prediction question waits.
@@ -46,7 +52,7 @@ test("gravity lesson: prediction question, zero gravity, honest offline badge", 
 });
 
 test("projectile lesson: engine numbers for 20 km/h at 40°", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/app");
   await ask(page, "Throw a basketball at 40 degrees at 20 km/h, how far does it go?");
   await expect(page.getByRole("heading", { name: "Throwing a basketball" })).toBeVisible();
   // Exact values from the analytic engine (R = v² sin 2θ / g).
@@ -61,7 +67,7 @@ test("projectile lesson: engine numbers for 20 km/h at 40°", async ({ page }) =
 });
 
 test("molecule lesson: verified water geometry", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/app");
   await ask(page, "Show me a water molecule and explain why it is bent.");
   await expect(page.getByRole("heading", { name: "Why water is bent" })).toBeVisible();
   await expect(page.getByText("Water, H₂O")).toBeVisible();
