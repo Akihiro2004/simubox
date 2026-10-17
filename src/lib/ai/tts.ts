@@ -44,9 +44,11 @@ export function speechifyConfigured(): boolean {
   return Boolean(process.env.SPEECHIFY_API_KEY);
 }
 
-/** Who voices a line: Speechify for English when it has a key, otherwise Gemini. */
-export function voiceProvider(lang: "en" | "id"): "speechify" | "gemini" {
-  return lang === "en" && speechifyConfigured() ? "speechify" : "gemini";
+export type VoiceEngine = "gemini" | "speechify";
+
+/** Who voices a line: Speechify only for English, when picked in Settings and it has a key; otherwise Gemini. */
+export function voiceProvider(lang: "en" | "id", engine: VoiceEngine = "gemini"): VoiceEngine {
+  return lang === "en" && engine === "speechify" && speechifyConfigured() ? "speechify" : "gemini";
 }
 
 
@@ -90,8 +92,8 @@ function remember(key: string, stream: SpeechStream): SpeechStream {
  * in hand, so failures still surface as errors. English goes to Speechify and
  * falls back to Gemini if Speechify can't take it.
  */
-export async function synthesizeStream(text: string, role: VoiceRole, lang: "en" | "id", cancel?: AbortSignal): Promise<SpeechStream> {
-  const provider = voiceProvider(lang);
+export async function synthesizeStream(text: string, role: VoiceRole, lang: "en" | "id", engine: VoiceEngine, cancel?: AbortSignal): Promise<SpeechStream> {
+  const provider = voiceProvider(lang, engine);
   // v3: raw PCM. v2 lines are sent bare (v1 style-prompted audio could contain the instruction).
   const key = `${provider}|v3|${role}|${lang}|${text}`;
   const hit = cache.get(key);
@@ -110,7 +112,14 @@ export async function synthesizeStream(text: string, role: VoiceRole, lang: "en"
       return remember(`gemini|v3|${role}|${lang}|${text}`, await geminiStream(text, role, cancel));
     }
   }
-  return remember(key, await geminiStream(text, role, cancel));
+  try {
+    return remember(key, await geminiStream(text, role, cancel));
+  } catch (e) {
+    // English on Gemini that hits its daily cap (or fails) is voiced by Speechify instead, if it has a key.
+    if (cancel?.aborted || lang !== "en" || !speechifyConfigured()) throw e;
+    console.error(JSON.stringify({ event: "gemini_tts_fallback", message: String(e).slice(0, 200) }));
+    return remember(`speechify|v3|${role}|${lang}|${text}`, await speechifyStream(text, role, cancel));
+  }
 }
 
 /** Speechify streams raw 16-bit little-endian mono PCM (24 kHz) for Accept: audio/pcm. */

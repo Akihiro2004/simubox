@@ -98,11 +98,15 @@ export interface CameraRequest {
   radius?: number;
 }
 
+export type EnglishVoice = "gemini" | "speechify";
+
 export interface Settings {
   motion: "auto" | "on" | "off";
   quality: "auto" | "low" | "medium" | "high";
   voice: boolean;
   voiceRate: number;
+  /** Who voices English lines (Indonesian is always Gemini). Missing in older saved settings: Gemini. */
+  englishVoice?: EnglishVoice;
   language: "auto" | "en" | "id";
   gradeBand: "elementary" | "middle" | "high";
 }
@@ -247,7 +251,7 @@ export const useSim = create<SimState>()(
       camera: { nonce: 0, preset: "home" },
       lastPlan: null,
       prePlanScene: null,
-      settings: { motion: "auto", quality: "auto", voice: true, voiceRate: 1, language: "auto", gradeBand: "middle" },
+      settings: { motion: "auto", quality: "auto", voice: true, voiceRate: 1, englishVoice: "gemini", language: "auto", gradeBand: "middle" },
       menuOpen: false,
       settingsOpen: false,
       transcriptOpen: false,

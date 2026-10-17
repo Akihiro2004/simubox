@@ -2,6 +2,8 @@
 // speaker) and falls back to the browser's SpeechSynthesis only when the server
 // has no AI. Captions never depend on audio.
 
+import { useSim } from "./store";
+
 export type VoiceRole = "robot" | "kid" | "teacher" | "scientist" | "astronaut" | "narrator";
 
 export function ttsSupported(): boolean {
@@ -26,7 +28,7 @@ const lines = new Map<string, Line>();
 let current: HTMLAudioElement | null = null;
 const sources = new Set<AudioBufferSourceNode>();
 
-const keyOf = (text: string, role: VoiceRole, lang: string) => `${role}|${lang}|${text}`;
+const keyOf = (text: string, role: VoiceRole, lang: string, engine: string) => `${engine}|${role}|${lang}|${text}`;
 
 let ctx: AudioContext | null = null;
 function audioContext(): AudioContext | null {
@@ -43,7 +45,7 @@ if (typeof window !== "undefined") {
   window.addEventListener("keydown", unlock, { capture: true });
 }
 
-async function load(line: Line, body: { text: string; role: VoiceRole; lang: "en" | "id" }) {
+async function load(line: Line, body: { text: string; role: VoiceRole; lang: "en" | "id"; engine: string }) {
   const end = (failed: boolean) => {
     line.done = true;
     line.failed = failed;
@@ -88,12 +90,14 @@ export function pcmToFloat(bytes: Uint8Array): Float32Array {
 }
 
 function getLine(text: string, role: VoiceRole, lang: "en" | "id"): Line {
-  const key = keyOf(text, role, lang);
+  // English voice picked in Settings; switching takes effect from the next line.
+  const engine = useSim.getState().settings.englishVoice ?? "gemini";
+  const key = keyOf(text, role, lang, engine);
   const known = lines.get(key);
   if (known && !known.failed) return known;
   const line: Line = { rate: 24000, chunks: [], done: false, failed: false, wake: new Set() };
   lines.set(key, line);
-  void load(line, { text: text.slice(0, 320), role, lang }).then(() => {
+  void load(line, { text: text.slice(0, 320), role, lang, engine }).then(() => {
     // Forget failures so a later attempt can retry.
     if (line.failed && lines.get(key) === line) lines.delete(key);
   });

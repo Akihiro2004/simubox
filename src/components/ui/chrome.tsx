@@ -386,7 +386,7 @@ function SettingsContent() {
         <Field label="Graphics" hint="Use Low on older phones and laptops.">
           <Seg label="Graphics" value={settings.quality} options={[["auto", "Auto"], ["low", "Low"], ["medium", "Medium"], ["high", "High"]]} onChange={(quality) => update({ quality })} />
         </Field>
-        <Field label="Read lines aloud" hint={ttsSupported() ? "Natural Gemini voices, a different one for each character. Captions always show." : "This browser can't play audio. Captions still show."}>
+        <Field label="Read lines aloud" hint={ttsSupported() ? "Natural AI voices, a different one for each character. Captions always show." : "This browser can't play audio. Captions still show."}>
           <Seg label="Read lines aloud" value={settings.voice ? "on" : "off"} options={[["on", "On"], ["off", "Off"]]} onChange={(v) => update({ voice: v === "on" })} />
           <AnimatePresence initial={false}>
           {settings.voice && (
@@ -405,6 +405,13 @@ function SettingsContent() {
               />
               <span className="w-10 text-right tabular-nums">{settings.voiceRate.toFixed(2)}×</span>
             </label>
+            <p className="mb-1.5 mt-3 text-[13px] font-semibold text-ink-3">English voice</p>
+            <Seg
+              label="English voice"
+              value={settings.englishVoice ?? "gemini"}
+              options={[["gemini", "Google Gemini"], ["speechify", "Speechify"]]}
+              onChange={(englishVoice) => update({ englishVoice })}
+            />
             </motion.div>
           )}
           </AnimatePresence>

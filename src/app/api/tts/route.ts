@@ -7,6 +7,7 @@ const Body = z.object({
   text: z.string().trim().min(1).max(MAX_TTS_CHARS),
   role: z.enum(Object.keys(VOICES) as [VoiceRole, ...VoiceRole[]]).default("robot"),
   lang: z.enum(["en", "id"]).default("en"),
+  engine: z.enum(["gemini", "speechify"]).default("gemini"),
 });
 
 export async function POST(req: Request) {
@@ -26,7 +27,7 @@ export async function POST(req: Request) {
 
   let speech;
   try {
-    speech = await synthesizeStream(parsed.data.text, parsed.data.role, parsed.data.lang, req.signal);
+    speech = await synthesizeStream(parsed.data.text, parsed.data.role, parsed.data.lang, parsed.data.engine, req.signal);
   } catch (e) {
     console.error(JSON.stringify({ event: "tts_error", message: String(e).slice(0, 200) }));
     // Out of credits: 503 tells the client to switch to the browser's own voice.
