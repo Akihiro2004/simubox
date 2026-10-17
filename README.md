@@ -4,8 +4,6 @@
 
 SimuBox is a chat box that answers in 3D. A student (primary to high school) types a science question, and Gemini directs a short lesson inside a small isometric diorama: it picks a world, sets up a real experiment, spawns objects and characters, and Simu the robot explains what is happening. The student can then orbit the camera, drag and throw objects, change sliders, and ask follow-ups without the scene resetting.
 
-Built for the [AI Builder Cup 2026](https://aibuildercup.com/) on Google Cloud.
-
 ## What actually works
 
 | Feature | How it works | Status |
