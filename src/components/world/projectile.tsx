@@ -1,6 +1,7 @@
 "use client";
 
-import { Html, Line, RoundedBox } from "@react-three/drei";
+import { Line, RoundedBox } from "@react-three/drei";
+import { Html } from "@/components/world/html";
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Object3D, type Group, type InstancedMesh } from "three";
@@ -114,7 +115,15 @@ export function ProjectileStage({ animate }: { animate: boolean }) {
     }
   });
 
-  if (!p || !r || !input) return null;
+  // Same root and keyed labels as below, so the labels survive the projectile going away.
+  if (!p || !r || !input)
+    return (
+      <group>
+        <Label key="apex" show={false} at={[0, 0, 0]} />
+        <Label key="land" show={false} at={[0, 0, 0]} />
+        <Label key="drift" show={false} at={[0, 0, 0]} />
+      </group>
+    );
   const h = p.height;
   const theta = (p.angleDeg * Math.PI) / 180;
   const landed = phase === "landed";
@@ -157,12 +166,7 @@ export function ProjectileStage({ animate }: { animate: boolean }) {
       </instancedMesh>
 
       {apex && r.vy > 0 && Number.isFinite(r.maxHeight) && (
-        <>
-          <Line points={[[apexPos[0], 0.02, 0], [apexPos[0], apexPos[1] + lift, 0]]} color="#c4b5fd" lineWidth={1.5} dashed dashSize={0.15} gapSize={0.1} />
-          <Html position={[apexPos[0], apexPos[1] + lift + 0.45 * visualScale, 0]} center zIndexRange={[20, 0]} style={{ pointerEvents: "none" }}>
-            <div className="tag flex items-center gap-1.5 px-3 py-1">Highest point {fmt(r.maxHeight, "m")}</div>
-          </Html>
-        </>
+        <Line points={[[apexPos[0], 0.02, 0], [apexPos[0], apexPos[1] + lift, 0]]} color="#c4b5fd" lineWidth={1.5} dashed dashSize={0.15} gapSize={0.1} />
       )}
       {landed && r.lands && (
         <>
@@ -171,16 +175,30 @@ export function ProjectileStage({ animate }: { animate: boolean }) {
             <meshBasicMaterial color="#facc15" />
           </mesh>
           <Line points={[[0, 0.03, 0.9 * visualScale], [r.range, 0.03, 0.9 * visualScale]]} color="#facc15" lineWidth={2} />
-          <Html position={[r.range / 2, 0.05, 0.9 * visualScale]} center zIndexRange={[20, 0]} style={{ pointerEvents: "none" }}>
-            <div className="tag flex items-center gap-1.5 px-3 py-1 tag-dot tag-fact">Lands at {fmt(r.range, "m")} after {fmt(r.flightTime, "s")}</div>
-          </Html>
         </>
       )}
-      {landed && !r.lands && (
-        <Html position={[path[path.length - 1][0], path[path.length - 1][1] + 0.8, 0]} center zIndexRange={[20, 0]} style={{ pointerEvents: "none" }}>
-          <div className="tag flex items-center gap-1.5 px-3 py-1 tag-dot tag-warning">No gravity, so it never comes down</div>
-        </Html>
-      )}
+      {/* Labels stay mounted and just hide: each drei Html owns a React root, and
+          unmounting one while the scene re-renders throws "synchronously unmount a root". */}
+      <Label key="apex" show={apex && r.vy > 0 && Number.isFinite(r.maxHeight)} at={[apexPos[0], apexPos[1] + lift + 0.45 * visualScale, 0]}>
+        <div className="tag flex items-center gap-1.5 px-3 py-1">Highest point {fmt(r.maxHeight, "m")}</div>
+      </Label>
+      <Label key="land" show={landed && r.lands} at={[r.range / 2, 0.05, 0.9 * visualScale]}>
+        <div className="tag flex items-center gap-1.5 px-3 py-1 tag-dot tag-fact">
+          Lands at {fmt(r.range, "m")} after {fmt(r.flightTime, "s")}
+        </div>
+      </Label>
+      <Label key="drift" show={landed && !r.lands} at={[path.at(-1)?.[0] ?? 0, (path.at(-1)?.[1] ?? 0) + 0.8, 0]}>
+        <div className="tag flex items-center gap-1.5 px-3 py-1 tag-dot tag-warning">No gravity, so it never comes down</div>
+      </Label>
     </group>
+  );
+}
+
+function Label({ show, at, children }: { show: boolean; at: [number, number, number]; children?: React.ReactNode }) {
+  const pos = at.map((v) => (Number.isFinite(v) ? v : 0)) as [number, number, number];
+  return (
+    <Html position={pos} center zIndexRange={[20, 0]} style={{ pointerEvents: "none", display: show ? undefined : "none" }}>
+      {children}
+    </Html>
   );
 }

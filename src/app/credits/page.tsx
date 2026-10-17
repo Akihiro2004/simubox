@@ -25,6 +25,7 @@ export default function Credits() {
           <ul className="list-disc space-y-1 pl-5">
             <li>3D models: every object, room and character was built for SimuBox from simple shapes in code. No third-party model files are used.</li>
             <li>Molecule geometry: NIST Computational Chemistry Comparison and Benchmark Database (CCCBDB), experimental values.</li>
+            <li>Earth sky imagery: NASA Goddard Space Flight Center / Reto Stöckli, Blue Marble land, ocean, ice and cloud composite.</li>
             <li>Built with Next.js, React Three Fiber, drei and Rapier (MIT), three.js (MIT), Zod (MIT), Zustand (MIT), Lucide icons (ISC), the Google Gen AI SDK (Apache 2.0) and Firebase (Apache 2.0).</li>
             <li>Typeface: SF Pro Rounded on Apple devices, Nunito (SIL Open Font License) elsewhere.</li>
           </ul>

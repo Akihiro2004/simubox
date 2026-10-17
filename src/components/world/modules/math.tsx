@@ -1,6 +1,7 @@
 "use client";
 
-import { Html, Line } from "@react-three/drei";
+import { Line } from "@react-three/drei";
+import { Html } from "@/components/world/html";
 import { useMemo } from "react";
 import { Quaternion, Vector3 } from "three";
 import { useSim } from "@/lib/store";

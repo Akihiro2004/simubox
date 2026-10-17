@@ -19,6 +19,7 @@ import { CourtPaint } from "./court-campus";
 import { useSim } from "@/lib/store";
 import { GardenPark } from "./garden-park";
 import { PeriodicTable } from "./periodic-table";
+import { LunarGround } from "./lunar-ground";
 
 const S = { castShadow: true, receiveShadow: true } as const;
 const HALF = 4.08; // wall centre-line distance from the room centre
@@ -216,13 +217,14 @@ function Court() {
   const scenery = useSim((s) => s.environment?.scenery ?? true);
   const ground = useSim((s) => s.environment?.ground ?? null);
   const surface = useSim((s) => s.environment?.surface ?? null);
+  const lunar = useSim((s) => s.environment?.preset === "moon");
   return (
     <>
       {scenery && <CourtLandscape />}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[20, -0.01, 0]} receiveShadow>
+      {lunar ? <LunarGround color={ground ?? "#a3a29d"} /> : <mesh rotation={[-Math.PI / 2, 0, 0]} position={[20, -0.01, 0]} receiveShadow>
         <planeGeometry args={[3000, 3000]} />
         <Mat c={ground ?? "#a3b780"} r={1} />
-      </mesh>
+      </mesh>}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[28, 0.002, 0]} receiveShadow>
         <planeGeometry args={[66, 13]} />
         <Mat c={surface ?? "#688e9e"} r={0.85} />

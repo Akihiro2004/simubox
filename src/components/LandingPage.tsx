@@ -354,7 +354,7 @@ export default function LandingPage() {
   const cards: Record<Exclude<Chapter, "hero">, React.ReactNode> = {
     projectile: (
       <>
-        <CardHead label="Live simulation" dot="#30a46c" />
+        <CardHead />
         <h2 className="text-[22px] font-extrabold leading-tight">Throw something and see the real numbers.</h2>
         <p className="mt-1.5 text-[15px] font-semibold leading-relaxed text-ink-2">{simuQuote}</p>
         <div className="group-rows mt-3 grid grid-cols-3 text-center [&>*+*]:border-l [&>*+*]:border-t-0 [&>*+*]:border-[var(--hairline)]">
@@ -395,7 +395,7 @@ export default function LandingPage() {
     ),
     gravity: (
       <>
-        <CardHead label="Live simulation" dot="#30a46c" />
+        <CardHead />
         <h2 className="text-[22px] font-extrabold leading-tight">Turn gravity off, or crank it way up.</h2>
         <p className="mt-1.5 text-[15px] font-semibold leading-relaxed text-ink-2">{gPreset.quote}</p>
         <div className="mt-3">
@@ -716,17 +716,19 @@ function LiquidFilter() {
   );
 }
 
-/** The small "Simu · Live simulation" line that heads each card, like Simu's answer card. */
-function CardHead({ label, dot }: { label: string; dot: string }) {
+/** The small "Simu · label" line that heads each card, like Simu's answer card. */
+function CardHead({ label, dot }: { label?: string; dot?: string }) {
   return (
     <div className="mb-2 flex items-center gap-2">
       {/* eslint-disable-next-line @next/next/no-img-element -- small local mark */}
       <img src="/branding/simubox-mark.webp" alt="" width={26} height={26} className="h-[26px] w-[26px]" />
       <span className="text-[15px] font-extrabold">Simu</span>
-      <span className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-3">
-        <span className="h-[7px] w-[7px] rounded-full" style={{ background: dot }} />
-        {label}
-      </span>
+      {label && (
+        <span className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-3">
+          <span className="h-[7px] w-[7px] rounded-full" style={{ background: dot }} />
+          {label}
+        </span>
+      )}
     </div>
   );
 }

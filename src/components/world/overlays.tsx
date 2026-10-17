@@ -1,6 +1,6 @@
 "use client";
 
-import { Html } from "@react-three/drei";
+import { Html } from "@/components/world/html";
 import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
 import { Quaternion, Vector3, type Group } from "three";

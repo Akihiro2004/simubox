@@ -1,6 +1,7 @@
 "use client";
 
-import { Edges, Html } from "@react-three/drei";
+import { Edges } from "@react-three/drei";
+import { Html } from "@/components/world/html";
 import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
 import { Object3D, type Group, type InstancedMesh } from "three";

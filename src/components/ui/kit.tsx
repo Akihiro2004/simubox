@@ -9,14 +9,15 @@ import { spring } from "@/lib/motion";
 /** iOS segmented control: the white thumb slides to the picked segment. */
 export function Segmented<T extends string | number>({ label, value, options, onChange, cols }: { label: string; value: T | null; options: readonly (readonly [T, string])[]; onChange: (v: T) => void; cols?: number }) {
   const id = useId();
+  // Without `cols`, segments size to their labels when there is room (and shrink, truncated, when there is not).
   return (
-    <div role="group" aria-label={label} className="seg grid gap-0.5" style={{ gridTemplateColumns: `repeat(${cols ?? options.length}, minmax(0, 1fr))` }}>
+    <div role="group" aria-label={label} className="seg grid gap-0.5" style={{ gridTemplateColumns: cols ? `repeat(${cols}, minmax(0, 1fr))` : `repeat(${options.length}, auto)` }}>
       {options.map(([v, l]) => {
         const on = value === v;
         return (
-          <button key={String(v)} type="button" aria-pressed={on} className="relative min-h-8 truncate px-1 text-[13px]" onClick={() => onChange(v)}>
+          <button key={String(v)} type="button" aria-pressed={on} className="relative min-h-8 min-w-0 px-2 text-[13px]" onClick={() => onChange(v)}>
             {on && <motion.span layoutId={`seg-${id}`} className="seg-thumb absolute inset-0" transition={spring.snappy} />}
-            <span className="relative">{l}</span>
+            <span className="relative block truncate">{l}</span>
           </button>
         );
       })}

@@ -10,12 +10,6 @@ import { cascade, popover, rise, spring, swap } from "@/lib/motion";
 import { answerQuestion, placeholderValues, replay, resolvePlaceholder, skipSpeech } from "@/lib/player";
 import { MOLECULES } from "@/lib/engine/chemistry";
 
-const SUPPORT: Record<string, { label: string; dot: string }> = {
-  simulated: { label: "Live simulation", dot: "#30a46c" },
-  visual: { label: "Illustration", dot: "var(--dot-info)" },
-  text: { label: "Explanation", dot: "var(--ink-3)" },
-};
-
 /** Tiny Simu face, used wherever the guide "speaks" in the interface. */
 export function SimuFace({ size = 28, className = "" }: { size?: number; className?: string }) {
   return (
@@ -69,15 +63,6 @@ export function ExplanationContent() {
       <motion.div variants={cascade.child} className="mb-2 flex items-center gap-2">
         <SimuFace />
         <span className="text-[15px] font-extrabold">Simu</span>
-        {ex.scope === "in_scope" && (
-          <span className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-3">
-            <span className="relative grid h-[7px] w-[7px] place-items-center">
-              {ex.supportLevel === "simulated" && <span className="absolute inset-0 animate-ping rounded-full opacity-60" style={{ background: SUPPORT[ex.supportLevel].dot }} />}
-              <span className="h-[7px] w-[7px] rounded-full" style={{ background: SUPPORT[ex.supportLevel].dot }} />
-            </span>
-            {SUPPORT[ex.supportLevel].label}
-          </span>
-        )}
         <button className="btn btn-quiet ml-auto grid h-8 w-8 place-items-center rounded-full text-ink-2" aria-label="Hide Simu's answer" onClick={() => set({ explanation: null, explanationOpen: false })}>
           <X size={17} />
         </button>

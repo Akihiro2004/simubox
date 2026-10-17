@@ -1,10 +1,10 @@
 "use client";
 
-import { Stars } from "@react-three/drei";
-import { useMemo } from "react";
+import { Suspense } from "react";
 import { useSim } from "@/lib/store";
 import type { LightMood } from "@/lib/environment";
-import { getEarthTexture } from "./modules/earth";
+import { DistantEarth } from "./distant-earth";
+import { Starfield } from "./starfield";
 
 /** Light colours and strengths for each mood (day = the template's own). */
 export const MOOD: Record<Exclude<LightMood, "day">, { sky: string; ground: string; hemi: number; ambient: number; sun: string; sunI: number; fill: number }> = {
@@ -30,16 +30,6 @@ const CRATERS = [
   { x: 66, z: 17, r: 2.2 },
 ];
 
-function Earth() {
-  const map = useMemo(() => getEarthTexture(), []);
-  return (
-    <mesh position={[-60, 55, -140]} rotation={[0.4, -1.2, 0]}>
-      <sphereGeometry args={[9, 48, 32]} />
-      <meshBasicMaterial map={map} />
-    </mesh>
-  );
-}
-
 /** Sky, haze, stars, Earth and craters for a restyled world. */
 export function EnvironmentLayer() {
   const env = useSim((s) => s.environment);
@@ -49,9 +39,9 @@ export function EnvironmentLayer() {
     <>
       {env.sky && <color attach="background" args={[env.sky]} />}
       {env.fog && <fog attach="fog" args={[env.fog, 50, 320]} />}
-      {env.stars && <Stars radius={260} depth={60} count={2500} factor={6} saturation={0} fade speed={0.3} />}
-      {env.earth && <Earth />}
-      {env.craters && world === "court" && (
+      {env.stars && <Starfield />}
+      {env.earth && <Suspense fallback={null}><DistantEarth /></Suspense>}
+      {env.craters && env.preset !== "moon" && world === "court" && (
         <group>
           {CRATERS.map((c, i) => (
             <group key={i} position={[c.x, 0, c.z]}>

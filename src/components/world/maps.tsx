@@ -3,7 +3,8 @@
 // Scenery and static colliders for the five newer worlds. Their science
 // lives in ./modules; this file is only the place itself.
 
-import { Html, RoundedBox, Stars } from "@react-three/drei";
+import { RoundedBox, Stars } from "@react-three/drei";
+import { Html } from "@/components/world/html";
 import { CuboidCollider, CylinderCollider, RigidBody } from "@react-three/rapier";
 import { BackSide } from "three";
 import { Mat } from "./assets";

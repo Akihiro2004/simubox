@@ -1,6 +1,7 @@
 "use client";
 
-import { Html, Line, RoundedBox } from "@react-three/drei";
+import { Line, RoundedBox } from "@react-three/drei";
+import { Html } from "@/components/world/html";
 import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
 import { MathUtils, Object3D, type Group, type InstancedMesh } from "three";
