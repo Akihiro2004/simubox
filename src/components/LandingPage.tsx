@@ -663,9 +663,9 @@ export default function LandingPage() {
             enter={enter}
             before={resetToNewExperiment}
             title="Start a blank experiment"
-            className="btn btn-quiet hidden h-10 items-center gap-1 rounded-full px-3 text-[13px] font-bold text-ink-2 sm:inline-flex"
+            className="btn btn-quiet hidden h-10 items-center gap-1 rounded-full px-3 text-[13px] font-bold leading-none text-ink-2 sm:inline-flex"
           >
-            <Plus size={15} /> New
+            <Plus size={15} className="-translate-y-px" /> New
           </StudioLink>
           <button type="submit" disabled={!prompt.trim()} aria-label="Send" className="btn btn-accent grid h-10 w-10 shrink-0 place-items-center rounded-full">
             <ArrowUp size={20} strokeWidth={2.6} />
