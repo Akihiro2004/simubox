@@ -22,6 +22,7 @@ import { isLearningAsset } from "@/lib/world/learning-assets";
 import { LearningColliders } from "./learning-assets";
 import { beginMapGrab, MapDragController } from "../builder/map-drag";
 import { useBuilder } from "@/lib/builder/store";
+import { isPlanetary } from "@/lib/environment";
 
 const DEG = Math.PI / 180;
 
@@ -223,6 +224,9 @@ export function SceneObjects({ animate }: { animate: boolean }) {
 
 function ObjectById({ id }: { id: string }) {
   const o = useSim((s) => s.objects[id]);
+  const hideCampus = useSim(s => s.world === "court" && isPlanetary(s.environment?.preset));
   if (!o) return null;
+  // Keep authored objects in the scene/save, but unmount Earth-only template furniture.
+  if (hideCampus && o.type === "asset" && ["bench", "covered_stand", "tree", "flowering_bush"].includes(o.asset)) return null;
   return <PhysObject o={o} />;
 }

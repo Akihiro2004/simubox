@@ -230,12 +230,14 @@ function SignalPlan({ s, animate }: { s: SignalState; animate: boolean }) {
   const sim = useRef<Sim | null>(null);
   const mat = useRef<MeshBasicMaterial>(null);
   const tex = useRef<DataTexture | null>(null);
+  const drawn = useRef("");
   // eslint-disable-next-line react-hooks/exhaustive-deps -- recomputed when what it depends on changes
   const heat = useMemo(() => heatGrid(s), [kind, walls, s.source, soundHz]);
   const shown = shownWavelength(kind, soundHz);
   const freq = SHOWN_SPEED / shown.shown;
   const fieldKey = JSON.stringify([kind, walls, animate]);
   const driverKey = `${s.source[0]},${s.source[1]},${freq}`;
+  const drawKey = `${fieldKey}:${driverKey}:${view}`;
   useEffect(() => {
     const holder = tex;
     return () => holder.current?.dispose();
@@ -262,7 +264,10 @@ function SignalPlan({ s, animate }: { s: SignalState; animate: boolean }) {
       // Reduced motion: let the waves fill the plan once, then hold still.
       if (field && !animate) for (let i = 0; i < 300; i++) field.advance(1 / 60, run.driver, 4);
     }
-    if (field && animate && view !== "strength") field.advance(Math.min(dt, 1 / 30), run.driver, 4);
+    const running = field && animate && view !== "strength" && !useSim.getState().paused;
+    // Heat-only, reduced-motion and paused views keep exactly the same pixels.
+    if (!running && drawn.current === drawKey) return;
+    if (running) field.advance(Math.min(dt, 1 / 30), run.driver, 4);
     const data = tex.current.image.data as Uint8Array;
     const hw = NX / HEAT;
     const showHeat = view !== "waves";
@@ -288,6 +293,7 @@ function SignalPlan({ s, animate }: { s: SignalState; animate: boolean }) {
       }
     }
     tex.current.needsUpdate = true;
+    drawn.current = drawKey;
   });
 
   const r = signalReception(s);

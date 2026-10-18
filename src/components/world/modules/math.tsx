@@ -122,10 +122,11 @@ function Arrow2D({ from, to, color, label }: { from: [number, number]; to: [numb
 
 export function MathModule() {
   const plot = useSim((s) => s.modules.plot);
+  const studio = useSim((s) => s.world === "math_studio");
   if (!plot) return null;
   const w = 2 * X_RANGE * U + 0.3, h = 2 * Y_RANGE * U + 0.3;
   return (
-    <group position={BOARD_CENTER} rotation={[0, Math.PI / 4, 0]}>
+    <group position={studio ? [-5.72, 2.55, -.8] : BOARD_CENTER} rotation={[0, studio ? Math.PI / 2 : Math.PI / 4, 0]}>
       <mesh position={[0, 0, -0.04]} castShadow receiveShadow>
         <boxGeometry args={[w + 0.12, h + 0.12, 0.06]} />
         <Mat c="#d5dce5" />
@@ -134,7 +135,7 @@ export function MathModule() {
         <planeGeometry args={[w, h]} />
         <meshStandardMaterial color="#fbfcfe" roughness={0.9} />
       </mesh>
-      {[-0.32, 0.32].map((k) => (
+      {!studio && [-0.32, 0.32].map((k) => (
         <mesh key={k} position={[k * w, -h / 2 - 0.62, -0.15]} rotation={[0.25, 0, 0]} castShadow>
           <boxGeometry args={[0.07, 1.3, 0.07]} />
           <Mat c="#5f6670" />

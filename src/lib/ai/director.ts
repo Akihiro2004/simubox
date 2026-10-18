@@ -5,6 +5,7 @@ import { type PlanRequest, type PlanIssue, type ScenePlan } from "../ssp/schema"
 import { normalizePlan, validatePlan, type ValidationResult } from "../ssp/validate";
 import { createStepStreamer, type StepEvent } from "../ssp/stream";
 import { matchCapabilities } from "./capabilities";
+import { chooseTeaching, isParameterFollowUp, teachingPlanIssue } from "./teaching";
 import { looksIndonesian, precheck, safePlan } from "./guard";
 import { systemPrompt, userPrompt } from "./prompt";
 import { DEEPSEEK_MODEL, deepseekConfigured, deepseekJson } from "./deepseek";
@@ -91,6 +92,7 @@ export function lessonMode(req: Pick<PlanRequest, "prompt" | "history"> & { scen
   // The first question always gets the full lesson, and so does a new topic
   // (a throw asked while the gravity room is open needs its own lesson).
   if (!req.history.length) return "lesson";
+  if (words <= 18 && isParameterFollowUp(p, req.scene?.capability)) return "quick";
   const topic = matchCapabilities(p)[0];
   const current = req.scene?.capability;
   if (topic && topic !== "concept" && current && topic !== current) return "lesson";
@@ -205,11 +207,18 @@ export async function direct(req: PlanRequest, emit: (e: DirectorEvent) => void 
   const deadline = AbortSignal.timeout(Number(process.env.AI_TIMEOUT_MS) || 70_000);
   const signal = cancel ? AbortSignal.any([deadline, cancel]) : deadline;
   const mode = lessonMode(req);
+  const teaching = chooseTeaching(req);
+  const validate = (raw: unknown): ValidationResult => {
+    const result = validatePlan(normalizePlan(raw, lang), req.scene);
+    if (!result.ok) return result;
+    const issue = teachingPlanIssue(result.plan, teaching);
+    return issue ? { ok: false, error: issue } : result;
+  };
   const base = userPrompt(req, matchCapabilities(req.prompt), mode);
   try {
     emit({ type: "status", text: mode === "quick" ? "Changing the scene" : "Reading your question" });
     // Steps go out (and start playing) as soon as each one is complete.
-    const streamer = createStepStreamer(req.scene, lang);
+    const streamer = createStepStreamer(req.scene, lang, plan => teachingPlanIssue(plan, teaching) === null);
     let first: string;
     let model = MODEL;
     try {
@@ -221,7 +230,7 @@ export async function direct(req: PlanRequest, emit: (e: DirectorEvent) => void 
       console.error(JSON.stringify({ event: "ai_stream_cut", model, steps: streamer.count, message: String(e).slice(0, 200) }));
       return { ok: true, plan: played, issues: streamer.issues, model, repaired: false, ms: Date.now() - started, mode };
     }
-    let result = validatePlan(normalizePlan(safeJson(first), lang), req.scene);
+    let result = validate(safeJson(first));
     // Some steps are already playing, so a whole-plan repair can't replace
     // them; invalid commands were dropped one by one instead.
     if (streamer.count && result.ok && result.plan.steps.length > streamer.count) {
@@ -241,7 +250,7 @@ export async function direct(req: PlanRequest, emit: (e: DirectorEvent) => void 
       const retry = `${base}\n\nYour previous ScenePlan had problems:\n${issueReport(result)}\n${prev ? `Previous plan (fix it, keep what worked):\n${prev}\n` : ""}Return the complete corrected ScenePlan JSON using only the documented command shapes.`;
       try {
         // Fixing named problems is mechanical: think briefly.
-        const second = validatePlan(normalizePlan(safeJson((await generate(retry, signal, emit, "repair")).text), lang), req.scene);
+        const second = validate(safeJson((await generate(retry, signal, emit, "repair")).text));
         result = better(result, second);
       } catch (e) {
         if (!result.ok) throw e;

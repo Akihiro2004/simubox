@@ -4,7 +4,7 @@ import { RoundedBox } from "@react-three/drei";
 import { useEffect, useMemo } from "react";
 import { CanvasTexture, SRGBColorSpace } from "three";
 import { useSim } from "@/lib/store";
-import { execNow } from "@/lib/player";
+import { cancelPlayback, execNow } from "@/lib/player";
 import { EMPTY_TABLE, PERIODIC_ELEMENTS, TABLE_SIZE, elementPoint, tableSelection, type PeriodicTableState } from "@/lib/periodic-table";
 
 const COLORS = { s: "#f3c9a6", p: "#b4dbce", d: "#c1d6ed", f: "#d8c7e6" };
@@ -31,7 +31,7 @@ function paintTable(ctx: CanvasRenderingContext2D, state: PeriodicTableState) {
     const [u, v] = elementPoint(e.number);
     const x = u * s.width - s.cell / 2, y = v * s.height - s.cell / 2;
     const block = e.series ? "f" : e.group! <= 2 || e.number === 2 ? "s" : e.group! >= 13 ? "p" : "d";
-    ctx.globalAlpha = selected.size && !selected.has(e.number) ? .38 : 1;
+    ctx.globalAlpha = selected.size && !selected.has(e.number) ? .78 : 1;
     ctx.fillStyle = COLORS[block];
     ctx.beginPath();
     ctx.roundRect(x, y, s.cell, s.cell, 7);
@@ -104,6 +104,7 @@ function paintTable(ctx: CanvasRenderingContext2D, state: PeriodicTableState) {
 
 export function PeriodicTable({ x }: { x: number }) {
   const state = useSim((s) => s.modules.periodicTable) ?? EMPTY_TABLE;
+  const focused = useSim((s) => s.camera.preset === "periodic_table");
   const texture = useMemo(() => {
     const canvas = document.createElement("canvas");
     canvas.width = TABLE_SIZE.width; canvas.height = TABLE_SIZE.height;
@@ -121,6 +122,7 @@ export function PeriodicTable({ x }: { x: number }) {
       </RoundedBox>
       <mesh position={[0, 0, .04]} onClick={(e) => {
         e.stopPropagation();
+        if (e.delta > 4) return; // Orbiting must not select a tile or reset the camera.
         if (!e.uv) { execNow({ op: "show_periodic_table" }); return; }
         const u = e.uv.x, v = 1 - e.uv.y;
         const hit = PERIODIC_ELEMENTS.find((el) => {
@@ -128,9 +130,10 @@ export function PeriodicTable({ x }: { x: number }) {
           return Math.abs(u - x) < TABLE_SIZE.cell / TABLE_SIZE.width / 2 && Math.abs(v - y) < TABLE_SIZE.cell / TABLE_SIZE.height / 2;
         });
         if (hit) {
+          cancelPlayback();
           const family = hit.group ? `Group ${hit.group}` : hit.series;
-          execNow({ op: "show_periodic_table", elements: [hit.number], groups: [], periods: [], caption: `${hit.number} · ${hit.name} (${hit.symbol}) · Period ${hit.period} · ${family}` });
-        } else execNow({ op: "show_periodic_table" });
+          execNow({ op: "show_periodic_table", elements: [hit.number], groups: [], periods: [], caption: `${hit.number} · ${hit.name} (${hit.symbol}) · Period ${hit.period} · ${family}`, focus: !focused });
+        } else if (!focused) execNow({ op: "show_periodic_table" });
       }}>
         <planeGeometry args={[3.44, 2.15]} />
         <meshBasicMaterial map={texture} toneMapped={false} />

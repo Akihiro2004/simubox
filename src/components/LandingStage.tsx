@@ -23,6 +23,7 @@ export interface StageProps {
   g: number;
   molId: MoleculeId;
   motion: boolean;
+  onReady?: () => void;
 }
 
 const damp = MathUtils.damp;
@@ -49,7 +50,7 @@ export default function LandingStage(props: StageProps) {
     return window.innerWidth < 768 || navigator.hardwareConcurrency <= 4 || (memory !== undefined && memory <= 4);
   });
   return (
-    <StageBoundary>
+    <StageBoundary onReady={props.onReady}>
     <Canvas
       shadows={economy ? false : { type: PCFShadowMap }}
       frameloop="demand"
@@ -57,7 +58,7 @@ export default function LandingStage(props: StageProps) {
       gl={{ antialias: true, alpha: true, powerPreference: "default" }}
       camera={{ position: [0, 6, 12], fov: 30, near: 0.1, far: 200 }}
       onCreated={({ gl }) => (gl.toneMapping = NeutralToneMapping)}
-      fallback={<StageFallback />}
+      fallback={<StageFallback onReady={props.onReady} />}
       aria-hidden
     >
       <RenderLoop {...props} economy={economy} />
@@ -67,15 +68,39 @@ export default function LandingStage(props: StageProps) {
       <directionalLight position={[6, 12, 7]} intensity={2.6} color="#fff0d8" castShadow={!economy} shadow-intensity={0.45} shadow-mapSize={[1024, 1024]} shadow-camera-left={-6} shadow-camera-right={6} shadow-camera-top={6} shadow-camera-bottom={-6} shadow-bias={-0.0004} shadow-normalBias={0.03} />
       <directionalLight position={[-8, 5, -3]} intensity={0.55} color="#d5e5ed" />
       <Scene {...props} />
+      <StageReady onReady={props.onReady} />
     </Canvas>
     </StageBoundary>
   );
 }
 
-class StageBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+class StageBoundary extends Component<{ children: ReactNode; onReady?: () => void }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
-  render() { return this.state.failed ? <StageFallback /> : this.props.children; }
+  render() { return this.state.failed ? <StageFallback onReady={this.props.onReady} /> : this.props.children; }
+}
+
+/** Compile the mounted scene, then warm real frames (including textures and contact shadows). */
+function StageReady({ onReady }: { onReady?: () => void }) {
+  const { gl, scene, camera, invalidate } = useThree();
+  const prepared = useRef(false);
+  const frames = useRef(0);
+  useEffect(() => {
+    let alive = true;
+    void gl.compileAsync(scene, camera).then(() => {
+      if (alive) { prepared.current = true; invalidate(); }
+    }).catch(() => {
+      // Normal rendering remains available when async preparation fails.
+      if (alive) { prepared.current = true; invalidate(); }
+    });
+    return () => { alive = false; };
+  }, [gl, scene, camera, invalidate]);
+  useFrame(() => {
+    if (!prepared.current || frames.current >= 4) return;
+    if (++frames.current === 4) onReady?.();
+    else invalidate();
+  });
+  return null;
 }
 
 /** Pause hidden tabs; reduced motion only renders briefly after input or scroll. */
@@ -110,7 +135,8 @@ function RenderLoop({ motion, economy, mode, angleDeg, speed, g, molId }: StageP
   return null;
 }
 
-function StageFallback() {
+function StageFallback({ onReady }: { onReady?: () => void }) {
+  useEffect(() => { onReady?.(); }, [onReady]);
   return (
     <div className="absolute inset-0 flex items-center justify-center pt-[18vh]">
       <svg viewBox="0 0 800 420" className="w-full max-w-[1000px]" aria-hidden>

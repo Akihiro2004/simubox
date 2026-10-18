@@ -1,4 +1,5 @@
 "use client";
+import { LearningLabMap } from "./learning-labs";
 
 // Fixed diorama decor for each world, with explicit static colliders.
 // Rooms have four walls; any wall between the camera and the room lowers to
@@ -16,6 +17,8 @@ import { Artwork, BedroomTextiles, DrapedWindow, OakFloor, WallFinish, Trim, Lab
 import { GlobeMap, MathMap, OceanMap, SpaceMap, WorkshopInterior } from "./maps";
 import { CourtLandscape, PlinthBand, Rim, Sconce, StudyWall, WorkshopWall } from "./scenery";
 import { CourtPaint } from "./court-campus";
+import { CampusGround, PlanetCourtSetting } from "./court-setting";
+import { isPlanetary } from "@/lib/environment";
 import { useSim } from "@/lib/store";
 import { GardenPark } from "./garden-park";
 import { PeriodicTable } from "./periodic-table";
@@ -216,14 +219,16 @@ function Lab({ animate }: { animate: boolean }) {
 function Court() {
   const markers = Array.from({ length: 12 }, (_, i) => (i + 1) * 5);
   // set_environment can hide the campus scenery and recolour the ground (Moon, Mars...).
-  const scenery = useSim((s) => s.environment?.scenery ?? true);
+  const env = useSim((s) => s.environment);
+  const planetary = isPlanetary(env?.preset);
+  const scenery = !planetary && (env?.scenery ?? true);
   const ground = useSim((s) => s.environment?.ground ?? null);
   const surface = useSim((s) => s.environment?.surface ?? null);
   const lunar = useSim((s) => s.environment?.preset === "moon");
   return (
     <>
       {scenery && <CourtLandscape />}
-      {lunar ? <LunarGround color={ground ?? "#a3a29d"} /> : <mesh rotation={[-Math.PI / 2, 0, 0]} position={[20, -0.01, 0]} receiveShadow>
+      {lunar ? <LunarGround color={ground ?? "#a3a29d"} /> : planetary && env ? <PlanetCourtSetting env={env} /> : scenery ? <CampusGround color={ground} /> : <mesh rotation={[-Math.PI / 2, 0, 0]} position={[20, -0.01, 0]} receiveShadow>
         <planeGeometry args={[3000, 3000]} />
         <Mat c={ground ?? "#a3b780"} r={1} />
       </mesh>}
@@ -253,7 +258,7 @@ function Court() {
       {[-7.1, 7.1].map(z => <Trim key={z} size={[66, .035, 1.1]} at={[28, -.005, z]} color="#c9c5ad" />)}
       <Trim size={[.14, .01, 13]} at={[-4.9, .008, 0]} color="#f8edd6" />
       <CourtPaint track={surface} />
-      <group position={[61, 0, 0]}>
+      {(!planetary || lunar) && <group position={[61, 0, 0]}>
         <mesh position={[0.4, 1.6, 0]} castShadow>
           <cylinderGeometry args={[0.08, 0.08, 3.2, 10]} />
           <Mat c="#5f6670" />
@@ -265,7 +270,7 @@ function Court() {
           <torusGeometry args={[0.23, 0.02, 8, 24]} />
           <Mat c="#f97316" />
         </mesh>
-      </group>
+      </group>}
       <RigidBody type="fixed" colliders={false}>
         <CuboidCollider args={[1500, 0.5, 1500]} position={[20, -0.5, 0]} friction={0.9} />
       </RigidBody>
@@ -322,6 +327,8 @@ function Stage() {
 
 export function WorldDecor({ world, animate }: { world: WorldId; animate: boolean }) {
   switch (world) {
+    case "mechanics": return <LearningLabMap animate={animate} />;
+    case "math_studio": return <LearningLabMap maths animate={animate} />;
     case "bedroom":
       return <Bedroom animate={animate} />;
     case "lab":

@@ -10,6 +10,7 @@ import { PLANET_IDS } from "../engine/astro";
 import { PLACE_IDS } from "../engine/geo";
 import { isValidExpression } from "../engine/expr";
 import { MAX_OPTICS, opticsPreset, presetIds, type OpticKind } from "../engine/optics";
+import { DEFAULT_MATH, MathFields, mathSetupError } from "../experiments";
 
 export type ValidationResult =
   | { ok: true; plan: ScenePlan; issues: PlanIssue[] }
@@ -19,6 +20,8 @@ const PLACEHOLDER_RE = /\{\{\s*([a-z_]+)(?::([a-z0-9_~]+))?\s*\}\}/g;
 
 /** Which world each science module lives in; using one elsewhere loads it first. */
 const MODULE_WORLD: Partial<Record<Command["op"], WorldId>> = {
+  show_mechanics: "mechanics",
+  show_math: "math_studio",
   show_periodic_table: "lab",
   launch_projectile: "court",
   show_orbits: "space",
@@ -40,7 +43,7 @@ const MODULE_WORLD: Partial<Record<Command["op"], WorldId>> = {
 };
 
 /** Home world of each module that set_module can change. */
-const MODULE_HOME: Record<ModuleName, WorldId> = { orbits: "space", fluid: "ocean", circuit: "workshop", wave: "workshop", lever: "workshop", particles: "lab", cell: "lab", globe: "globe", ripple: "workshop", signal: "stage", optics: "optics" };
+const MODULE_HOME: Record<ModuleName, WorldId> = { mechanics: "mechanics", maths: "math_studio", orbits: "space", fluid: "ocean", circuit: "workshop", wave: "workshop", lever: "workshop", particles: "lab", cell: "lab", globe: "globe", ripple: "workshop", signal: "stage", optics: "optics" };
 
 /** Gravity a command sets (m/s², positive), if any. */
 function gravityOf(c: Command): number | undefined {
@@ -53,6 +56,7 @@ const GRAVITY_PLACES = [
   { preset: "moon", g: 1.62 },
   { preset: "mars", g: 3.71 },
   { preset: "earth", g: 9.81 },
+  { preset: "jupiter", g: 24.79 },
 ] as const;
 
 /**
@@ -62,7 +66,7 @@ const GRAVITY_PLACES = [
  */
 function matchEnvironment(steps: { title: string; commands: Command[] }[], current: string | undefined): void {
   const all = steps.flatMap((s) => s.commands);
-  if (!steps.length || all.some((c) => c.op === "set_environment")) return;
+  if (!steps.length || all.some((c) => c.op === "set_environment" && c.preset)) return;
   const gs = all.map(gravityOf).filter((g): g is number => g !== undefined);
   if (!gs.length) return;
   const place = GRAVITY_PLACES.find((p) => Math.abs(p.g - gs[0]) < 0.12)?.preset;
@@ -109,6 +113,7 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
   const objects = new Set(scene.objects.map((o) => o.id));
   const characters = new Set([GUIDE_ID, ...scene.characters.map((c) => c.id)]);
   let world: WorldId = scene.world;
+  let mathState = MathFields.safeParse(scene.modules?.maths).success ? MathFields.parse(scene.modules?.maths) : DEFAULT_MATH;
   let downwardGravity = scene.world === "court" && scene.projectile ? scene.projectile.gravity : Math.max(0, -(scene.gravity?.[1] ?? -9.81));
   let total = 0;
   const marks = new Set<string>();
@@ -121,6 +126,7 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
   const everMarks = new Set<string>();
   const everOptics = new Set(optics);
   const resetTo = (w: WorldId) => {
+    mathState = DEFAULT_MATH;
     objects.clear();
     const layout = scene.layouts?.find(map => map.world === w);
     if (layout) for (const id of layout.ids) objects.add(id);
@@ -168,7 +174,8 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
       if (c.op === "launch_projectile" && c.gravity === undefined) c.gravity = downwardGravity;
 
       // Science modules need their world; load it first if the plan didn't.
-      const home = c.op === "set_module" ? MODULE_HOME[c.module] : MODULE_WORLD[c.op];
+      const mathPlot = ["plot_function", "plot_point", "plot_vector"].includes(c.op) && world === "math_studio";
+      const home = mathPlot ? world : c.op === "set_module" ? MODULE_HOME[c.module] : MODULE_WORLD[c.op];
       if (home && world !== home) {
         commands.push({ op: "load_world", world: home });
         world = home;
@@ -178,11 +185,21 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
       }
 
       switch (c.op) {
+        case "show_math": {
+          const patch = MathFields.partial().parse(Object.fromEntries(Object.entries(c).filter(([key]) => key !== "op")));
+          const next = { ...DEFAULT_MATH, ...patch };
+          const error = mathSetupError(next);
+          if (error) return drop(error);
+          mathState = next;
+          break;
+        }
         case "set_parameter":
+          if (world === "mechanics" && c.name === "gravity" && c.value > 100) return drop("Mechanics Lab supports gravity up to 100 m/s²");
           if (c.name === "gravity" && (c.value < 0 || c.value > LIMITS.maxGravity)) return drop(`gravity must be between 0 and ${LIMITS.maxGravity} m/s²`);
           if (c.name === "gravity") downwardGravity = c.value;
           break;
         case "set_gravity":
+          if (world === "mechanics" && (c.gravity[0] !== 0 || c.gravity[2] !== 0 || c.gravity[1] > 0 || c.gravity[1] < -100)) return drop("Mechanics Lab supports downward gravity from 0 to 100 m/s²");
           if (world === "court" && (c.gravity[0] !== 0 || c.gravity[2] !== 0 || c.gravity[1] > 0)) return drop("the projectile court supports downward gravity only; use another world for sideways or upward gravity");
           downwardGravity = Math.max(0, -c.gravity[1]);
           break;
@@ -206,6 +223,12 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
           const patch = MODULE_FIELDS[c.module].safeParse(c.set);
           if (!patch.success) return drop(`set ${c.module}: ${patch.error.issues.map((i) => `${i.path.join(".") || "set"}: ${i.message}`).join("; ")}`);
           if (!Object.keys(patch.data).length) return drop("set_module needs at least one field to change");
+          if (c.module === "maths") {
+            const next = { ...mathState, ...MODULE_FIELDS.maths.parse(c.set) };
+            const error = mathSetupError(next);
+            if (error) return drop(error);
+            mathState = next;
+          }
           if (c.module === "optics") {
             const p = patch.data as { aimAt?: string | null; object?: { target: string } | null };
             if (p.aimAt && !optics.has(p.aimAt)) return drop(`aimAt: unknown optics element "${p.aimAt}"`);
@@ -335,7 +358,7 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
 const SUBJECTS = ["physics", "chemistry", "biology", "math", "earth_space", "general_science", "other"];
 const SCOPES = ["in_scope", "too_advanced", "off_topic", "unsafe", "needs_clarification"];
 const SUPPORT = ["simulated", "visual", "text"];
-const CAPS = ["gravity", "projectile", "molecule", "atom", "orbits", "buoyancy", "graph", "geometry", "circuit", "waves", "lever", "matter", "cell", "globe", "concept", "none", "light", "signal"];
+const CAPS = ["gravity", "projectile", "molecule", "atom", "orbits", "buoyancy", "graph", "geometry", "circuit", "waves", "lever", "matter", "cell", "globe", "concept", "none", "light", "signal", "mechanics", "maths"];
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
 const clip = (v: unknown, max: number) => (typeof v === "string" ? (v.length > max ? `${v.slice(0, max - 1).replace(/\s+\S*$/, "")}…` : v) : v);

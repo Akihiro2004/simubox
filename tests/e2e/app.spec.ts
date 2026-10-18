@@ -9,16 +9,17 @@ async function ask(page: Page, text: string) {
 }
 
 test("loads the landing page at / and navigates to the 3D studio at /app", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /Ask anything\. Watch it come to life\./i })).toBeVisible();
-  await expect(page.getByRole("group", { name: "Try a mini experiment" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Saved experiments/i })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: /ask simubox/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign in with Google", exact: true })).toBeVisible();
 
-  await page.getByRole("link", { name: /Open studio/i }).first().click();
+  await page.getByRole("link", { name: "Bedroom", exact: true }).click();
   await expect(page).toHaveURL(/\/app$/);
-  await expect(page.locator("canvas")).toBeVisible();
+  await expect(page.getByLabel("Interactive 3D science world", { exact: true }).locator("canvas")).toBeVisible();
   await expect(page.getByRole("textbox", { name: /ask simubox/i })).toBeVisible();
 
   await page.getByRole("button", { name: "Open menu" }).click();

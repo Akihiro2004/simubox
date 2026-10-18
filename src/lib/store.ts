@@ -194,6 +194,8 @@ const guide = (world: WorldId): Character => ({
 });
 
 const WORLD_CAPABILITY: Record<WorldId, CapabilityId> = {
+  mechanics: "mechanics",
+  math_studio: "maths",
   bedroom: "gravity",
   court: "projectile",
   lab: "molecule",

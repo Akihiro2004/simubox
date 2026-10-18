@@ -8,6 +8,9 @@ SimuBox is a chat box that answers in 3D. A student (primary to high school) typ
 
 | Feature | How it works | Status |
 | --- | --- | --- |
+| Mechanics Lab | Thirteen setups over six analytic instruments: forces/acceleration/friction, collisions, impulse, ramp, spring, and small-angle pendulum; signed SI readouts and playback | Implemented; see [models and limits](docs/LEARNING_LABS.md) |
+| Math Studio | Nineteen worked-example instruments spanning number work, measurement, algebra, geometry, trig, data and probability; also supports existing graphs and shapes | Implemented; bounded teaching tools, not a complete authored curriculum |
+| Teaching decisions | Context-aware capability recommendations and validated stream admission; preserves simple bedroom gravity questions and uses the workshop tank for water waves/wind | Covered by routing tests and live local plan checks |
 | Gravity and forces (bedroom) | Rapier rigid-body physics; gravity presets from zero to Jupiter; impulses; drag to pick up and throw; per-object mass and bounciness | Working |
 | Projectile motion (court) | Exact analytic equations (no drag, launch height supported); km/h, m/s, mph; sliders relaunch instantly without AI | Working, 120+ numeric tests |
 | Molecules and atoms (lab) | Curated geometry for H₂O, CO₂, CH₄, NH₃, O₂, N₂, H₂, HCl from NIST data; lone pairs; measured bond-angle arcs; Bohr-model atoms H to Ca (labelled simplified) | Working |
@@ -18,7 +21,7 @@ SimuBox is a chat box that answers in 3D. A student (primary to high school) typ
 | Rooms you can walk around | Four walls; the walls facing the camera lower into a baseboard as you orbit | Working |
 | Accounts and saving | Google sign-in with Firebase Auth; experiments in Firestore with owner-only rules; guests save to the browser | Code complete; needs a Firebase project |
 | Lesson upload | PDF or text read by Gemini in memory (never stored), turned into suggested questions | Needs a Gemini key |
-| Offline demos | When no AI is configured, the three core prompts play pre-written lessons clearly badged "Offline demo" | Working |
+| Offline demos | When no AI is configured, core prompts play built-in gravity, projectile, molecule, mechanics, fraction and wind-wave lessons clearly badged "Offline demo" | Working |
 
 ## Architecture
 
@@ -57,7 +60,7 @@ cp .env.example .env.local   # add GEMINI_API_KEY to use live Gemini
 npm run dev
 ```
 
-Without `GEMINI_API_KEY` the app still runs: the three core questions play offline demos, badged as such.
+Without `GEMINI_API_KEY` the app still runs: supported core questions play built-in offline demos, badged as such.
 
 ## Tests
 

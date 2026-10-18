@@ -8,6 +8,7 @@ import { view } from "@/lib/world/runtime";
 import { useSim } from "@/lib/store";
 import { WORLDS } from "@/lib/world/catalog";
 import { periodicTableCamera } from "@/lib/periodic-table";
+import { fitCourtFlight, VIEW_SAFE as SAFE } from "@/lib/world/camera-framing";
 
 /** Shared handle so drag code can pause orbiting while an object is held. */
 export const controlsRef: { current: CameraControlsImpl | null } = { current: null };
@@ -18,7 +19,6 @@ const ZOOM = { close: 4.5, medium: 9, wide: 18 } as const;
  * Screen area not covered by UI, in normalized device coordinates: the
  * answer card sits on the left, the composer at the bottom, controls right.
  */
-const SAFE = { left: -0.45, right: 0.62, bottom: -0.6, top: 0.8 };
 const ndc = new Vector3();
 
 /** Camera distance that fits a sphere of radius r inside the safe area. */
@@ -78,6 +78,12 @@ export function CameraRig({ animate }: { animate: boolean }) {
       return;
     }
     if (cam.points?.length) {
+      if (world === "court") {
+        const fov = camera instanceof PerspectiveCamera ? camera.fov : 32;
+        const fit = fitCourtFlight(cam.points, fov, size.width / Math.max(1, size.height), p.clone().sub(t), Math.max(.8, cam.radius ?? 0));
+        void c.setLookAt(fit.position.x, fit.position.y, fit.position.z, fit.target.x, fit.target.y, fit.target.z, smooth);
+        return;
+      }
       // Fit every point, keeping the current viewing angle.
       const sphere = new Sphere().setFromPoints(cam.points.map((q) => new Vector3(...q)));
       const r = Math.max(cam.radius ?? 1.5, sphere.radius + 0.6);

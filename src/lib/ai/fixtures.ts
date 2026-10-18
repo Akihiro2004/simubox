@@ -7,7 +7,34 @@ import { matchCapabilities } from "./capabilities";
 
 const base = { schemaVersion: 1 as const, scope: "in_scope" as const, language: "en" as const };
 
-export const FIXTURES: Record<"gravity" | "projectile" | "molecule", ScenePlan> = {
+export const FIXTURES: Record<"gravity" | "projectile" | "molecule" | "mechanics" | "maths" | "waves", ScenePlan> = {
+  mechanics: {
+    ...base, title: "Force, mass and acceleration", subject: "physics", supportLevel: "simulated", capability: "mechanics",
+    reply: "This built-in Mechanics Lab demo compares the same push on two different masses. Net force divided by mass gives acceleration: {{mechanics_acceleration}} after the change.",
+    steps: [
+      { title: "Start the dynamics track", commands: [{ op: "show_mechanics", mode: "force", forceN: 4, massKg: 2, durationS: 3 }, { op: "speak", speaker: "simu", text: "This is a built-in force experiment. Watch the orange cart speed up under a steady push." }] },
+      { title: "Predict and compare", commands: [{ op: "ask_question", question: "With the same force, what happens when the mass doubles?", choices: ["Acceleration halves", "Acceleration doubles", "Acceleration stays the same"], answerIndex: 0, explanation: "Acceleration is net force divided by mass." }, { op: "set_module", module: "mechanics", set: { massKg: 4 } }, { op: "speak", speaker: "simu", text: "The heavier cart accelerates less. At the chosen time its acceleration is {{mechanics_acceleration}} and its momentum is {{mechanics_momentum}}." }] },
+    ], assumptions: ["Ideal 1D track; no friction or air resistance."], limitations: ["This is a built-in example, not a new AI-generated answer."],
+    followUps: ["Compare elastic and sticky collisions", "What if the same impulse lasts longer?", "Show a cart slowing down with friction"],
+  },
+  maths: {
+    ...base, title: "Adding fraction strips", subject: "math", supportLevel: "simulated", capability: "maths",
+    reply: "This built-in Math Studio example adds one half and one third. Cutting both into equal-size pieces gives {{math_formula}} = {{math_answer}}.",
+    steps: [
+      { title: "Compare the pieces", commands: [{ op: "show_math", mode: "fractions", numerator: 1, denominator: 2, numerator2: 1, denominator2: 3 }, { op: "speak", speaker: "simu", text: "This is a built-in fraction example. The green tiles and gold tiles have different sizes, so we first give them a common denominator." }] },
+      { title: "Equal-size sixths", commands: [{ op: "ask_question", question: "How many sixths equal one half?", choices: ["One", "Two", "Three"], answerIndex: 2, explanation: "Three equal sixths cover exactly one half." }, { op: "show_math", mode: "fractions", numerator: 3, denominator: 6, numerator2: 2, denominator2: 6 }, { op: "speak", speaker: "simu", text: "Now every tile has the same size. The result is {{math_answer}}. Try another investigation in the controls." }] },
+    ], assumptions: ["Each tile is one denominator-sized part of a whole."], limitations: ["This is a fixed fraction demo; the controls offer other math models."],
+    followUps: ["Solve a linear equation", "Convert metres to centimetres", "Show why the sine of thirty degrees is one half"],
+  },
+  waves: {
+    ...base, title: "Wind and water waves", subject: "physics", supportLevel: "simulated", capability: "waves",
+    reply: "This built-in ripple-tank example illustrates wind transferring energy to water. Stronger forcing makes larger ripples here; real ocean wave growth also depends on wind duration and fetch.",
+    steps: [
+      { title: "Wind drives the tank", commands: [{ op: "load_world", world: "workshop" }, { op: "show_ripple_tank", windSpeedMps: 4, source: "plane" }, { op: "speak", speaker: "simu", text: "Wind transfers energy to water. Our ripple tank models how the waves travel; the wind strength is an illustrative driver, not a forecast of ocean wave heights." }] },
+      { title: "Compare stronger forcing", commands: [{ op: "wait", ms: 1500 }, { op: "set_module", module: "ripple", set: { windSpeedMps: 12 } }, { op: "speak", speaker: "simu", text: "The wind driver is now {{wind_speed}}. Waves carry energy while water moves mainly locally. In the ocean, fetch is the distance over which wind blows in one direction." }] },
+    ], assumptions: ["Small-amplitude tank wave model; visual heights are exaggerated."], limitations: ["Wind-to-amplitude mapping is qualitative, not an ocean forecast.", "No coupled air-water turbulence or wind-duration/fetch growth model."],
+    followUps: ["What happens in shallower water?", "Show waves spreading through a gap", "Compare two sources making interference"],
+  },
   gravity: {
     ...base,
     title: "Gravity switched off",
@@ -127,6 +154,6 @@ export const FIXTURES: Record<"gravity" | "projectile" | "molecule", ScenePlan> 
 
 export function pickFixture(prompt: string): ScenePlan | null {
   const cap = matchCapabilities(prompt)[0];
-  if (cap === "gravity" || cap === "projectile" || cap === "molecule") return FIXTURES[cap];
+  if (cap === "gravity" || cap === "projectile" || cap === "molecule" || cap === "mechanics" || cap === "maths" || cap === "waves") return FIXTURES[cap];
   return null;
 }

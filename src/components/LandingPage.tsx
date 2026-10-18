@@ -5,7 +5,8 @@ import { ArrowRight, ArrowUp, Bookmark, ChevronDown, LogIn, LogOut, Plus, User }
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import LandingIntro from "./LandingIntro";
 import { AnimatePresence, motion as m } from "motion/react";
 import { Segmented } from "@/components/ui/kit";
 import { MorphPanel, useViewport } from "@/components/ui/morph";
@@ -141,6 +142,10 @@ const LandingStage = dynamic(() => import("./LandingStage"), { ssr: false });
 
 export default function LandingPage() {
   const motion = useMotion();
+  const [sceneReady, setSceneReady] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const sceneLoaded = useCallback(() => setSceneReady(true), []);
+  const reveal = useCallback(() => setRevealed(true), []);
   const user = useAuth((a) => a.user);
   const available = useAuth((a) => a.available);
   const ready = useAuth((a) => a.ready);
@@ -164,9 +169,16 @@ export default function LandingPage() {
   const phone = vp.w < 640 || (vp.w < 1024 && vp.h > vp.w);
   useEffect(() => {
     void initFirebase();
-    // Load the studio in the background so entering it is instant.
-    router.prefetch("/app");
-  }, [router]);
+  }, []);
+  useEffect(() => {
+    if (ready && user) router.replace("/app");
+  }, [ready, user, router]);
+  useEffect(() => {
+    if (!revealed) return;
+    // Prioritize the landing scene before fetching the larger studio route.
+    const timer = setTimeout(() => router.prefetch("/app"), 1500);
+    return () => clearTimeout(timer);
+  }, [router, revealed]);
 
   /** Into the studio: what was clicked grows into the veil that covers the load. */
   const enter = (from: HTMLElement | null, before?: () => void) => {
@@ -192,7 +204,7 @@ export default function LandingPage() {
   // Entrance: the stage rises, the headline arrives word by word, the bars settle in.
   useLayoutEffect(() => {
     const root = pageRef.current;
-    if (!root) return;
+    if (!root || !revealed) return;
     const parts = root.querySelectorAll<HTMLElement>("[data-enter]");
     if (!motion) {
       parts.forEach((e) => (e.style.opacity = "1"));
@@ -221,7 +233,7 @@ export default function LandingPage() {
       tl.revert();
       cue.revert();
     };
-  }, [motion]);
+  }, [motion, revealed]);
 
   // Scroll story: each chapter switches the live demo and morphs the one glass
   // card; anime.js ties the camera and the worlds ring to the scroll, smoothed.
@@ -243,7 +255,16 @@ export default function LandingPage() {
       { root: sc, rootMargin: "-50% 0px -50% 0px" },
     );
     sc.querySelectorAll("[data-chapter]").forEach((el) => io.observe(el));
-    const jump = () => (view.p = sc.scrollTop / Math.max(1, sc.scrollHeight - sc.clientHeight));
+    const hero = sc.querySelector<HTMLElement>("[data-hero]")!;
+    const jump = () => {
+      view.p = sc.scrollTop / Math.max(1, sc.scrollHeight - sc.clientHeight);
+      if (motion) {
+        const progress = Math.min(1, Math.max(0, (sc.scrollTop - 32) / Math.min(240, sc.clientHeight * 0.3)));
+        const fade = progress * progress * (3 - 2 * progress);
+        hero.style.opacity = String(1 - fade);
+        hero.style.filter = `blur(${fade * 10}px)`;
+      }
+    };
     // The 3D camera does its own damping; native progress also tracks touch and programmatic scrolling.
     sc.addEventListener("scroll", jump, { passive: true });
     jump();
@@ -255,22 +276,6 @@ export default function LandingPage() {
     }
 
     const anims: JSAnimation[] = [];
-    // The headline drifts up and away as soon as scrolling starts.
-    const hero = sc.querySelector<HTMLElement>("[data-hero]")!;
-    anims.push(
-      animate(hero, {
-        opacity: [1, 0],
-        translateY: [0, -90],
-        ease: "linear",
-        autoplay: onScroll({
-          container: sc,
-          target: hero.closest("section")!,
-          enter: { target: "top", container: "top" },
-          leave: { target: "center", container: "top" },
-          sync: 0.25,
-        }),
-      }),
-    );
     // The worlds ring spins as you scroll through its chapter.
     const ring = sc.querySelector<HTMLElement>(".worlds-ring");
     if (ring)
@@ -284,6 +289,8 @@ export default function LandingPage() {
     return () => {
       io.disconnect();
       sc.removeEventListener("scroll", jump);
+      hero.style.removeProperty("opacity");
+      hero.style.removeProperty("filter");
       anims.forEach((a) => a.revert());
     };
   }, [motion]);
@@ -438,11 +445,13 @@ export default function LandingPage() {
   };
 
   return (
-    <div ref={pageRef} className="relative h-dvh w-full origin-center overflow-hidden">
+    <>
+    <LandingIntro sceneReady={sceneReady && ready && !user} allowContinue={ready && !user} motion={motion} pageRef={pageRef} onReveal={reveal} />
+    <div ref={pageRef} inert={!revealed} aria-hidden={!revealed} data-landing-ready={revealed} className="relative h-dvh w-full origin-center overflow-hidden">
       {/* The stage: a real 3D diorama behind everything, like the studio's world */}
       <div className="pointer-events-none fixed inset-0">
         <div ref={stageRef} className="h-full w-full">
-          <LandingStage mode={mode} angleDeg={angleDeg} speed={speed} g={gPreset.g} molId={molId} motion={motion} />
+          {ready && !user && <LandingStage mode={mode} angleDeg={angleDeg} speed={speed} g={gPreset.g} molId={molId} motion={motion} onReady={sceneLoaded} />}
         </div>
       </div>
 
@@ -512,7 +521,7 @@ export default function LandingPage() {
       <main ref={scrollerRef} className="no-scrollbar relative z-10 h-dvh overflow-y-auto overscroll-contain">
         <div>
           <section data-chapter="hero" className="flex min-h-dvh flex-col items-center px-4 pt-[16vh] text-center sm:pt-[19vh]">
-            <div data-hero>
+            <div data-hero className={motion ? "sticky top-[16vh] sm:top-[19vh]" : undefined}>
               {user && (
                 <p data-enter className="mb-1 text-[14px] font-extrabold text-[var(--dot-question)]">
                   {firstName ? `Welcome back, ${firstName}` : "Welcome back"}
@@ -673,6 +682,7 @@ export default function LandingPage() {
         </form>
       </div>
     </div>
+    </>
   );
 }
 

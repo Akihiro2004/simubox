@@ -67,10 +67,12 @@ export function ProjectileStage({ animate }: { animate: boolean }) {
       m.instanceMatrix.needsUpdate = true;
       m.count = 0;
     }
-    const X = Number.isFinite(r.range) ? r.range : path[path.length - 1][0];
-    const Y = Number.isFinite(r.maxHeight) ? r.maxHeight : path[path.length - 1][1];
-    const span = Math.max(10, X * 0.9, Y * 1.8) + 4;
-    useSim.getState().focus({ target: [X / 2, Math.max(1, Y / 2), 0], distance: span });
+    // Fit the actual flight and guide through the viewport-aware camera fitter.
+    // A distance based only on range clipped both ends, especially on phones.
+    useSim.getState().focus({ points: [
+      [-2.2, 0, 2.2], [-1.5, 2.4, 2.2],
+      ...path.map(([x, y]) => [x, y + lift + .6 * visualScale, 0] as [number, number, number]),
+    ] });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only on launch
   }, [p?.launchNonce]);
 

@@ -2,9 +2,11 @@
 
 import { Suspense } from "react";
 import { useSim } from "@/lib/store";
-import type { LightMood } from "@/lib/environment";
+import { isGiantPlanet, type LightMood } from "@/lib/environment";
 import { DistantEarth } from "./distant-earth";
 import { Starfield } from "./starfield";
+import { Color } from "three";
+import { COURT_CRATERS, ROCKY_COURT } from "@/lib/world/court-terrain";
 
 /** Light colours and strengths for each mood (day = the template's own). */
 export const MOOD: Record<Exclude<LightMood, "day">, { sky: string; ground: string; hemi: number; ambient: number; sun: string; sunI: number; fill: number }> = {
@@ -15,20 +17,6 @@ export const MOOD: Record<Exclude<LightMood, "day">, { sky: string; ground: stri
 };
 
 // Sparse, staggered craters with generous gaps, clear of the measured lanes.
-const CRATERS = [
-  { x: -12, z: -18, r: 1.6 },
-  { x: 2, z: -30, r: 1.1 },
-  { x: 17, z: -15, r: 2.1 },
-  { x: 31, z: -27, r: 1.3 },
-  { x: 47, z: -17, r: 1.8 },
-  { x: 65, z: -29, r: 1.2 },
-  { x: -10, z: 27, r: 1.2 },
-  { x: 4, z: 15, r: 1.7 },
-  { x: 20, z: 29, r: 2 },
-  { x: 35, z: 16, r: 1.15 },
-  { x: 50, z: 31, r: 1.5 },
-  { x: 66, z: 17, r: 2.2 },
-];
 
 /** Sky, haze, stars, Earth and craters for a restyled world. */
 export function EnvironmentLayer() {
@@ -41,17 +29,17 @@ export function EnvironmentLayer() {
       {env.fog && <fog attach="fog" args={[env.fog, 50, 320]} />}
       {env.stars && <Starfield />}
       {env.earth && <Suspense fallback={null}><DistantEarth /></Suspense>}
-      {env.craters && env.preset !== "moon" && world === "court" && (
+      {env.craters && env.preset !== "moon" && !isGiantPlanet(env.preset) && world === "court" && (
         <group>
-          {CRATERS.map((c, i) => (
-            <group key={i} position={[c.x, 0, c.z]}>
+          {COURT_CRATERS.map((c, i) => (
+            <group key={i} position={[c.x, ROCKY_COURT.surfaceY + .005, c.z]}>
               <mesh rotation={[-Math.PI / 2, 0, 0]} scale={[1, 1, 0.35]} receiveShadow castShadow>
                 <torusGeometry args={[c.r, c.r * 0.16, 8, 32]} />
-                <meshStandardMaterial color="#b9b8b2" roughness={1} />
+                <meshStandardMaterial color={new Color(env.ground ?? "#b9b8b2").multiplyScalar(1.12)} roughness={1} />
               </mesh>
               <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.004, 0]} receiveShadow>
                 <circleGeometry args={[c.r, 32]} />
-                <meshStandardMaterial color="#77766f" roughness={1} />
+                <meshStandardMaterial color={new Color(env.ground ?? "#77766f").multiplyScalar(.65)} roughness={1} polygonOffset polygonOffsetFactor={-2} polygonOffsetUnits={-2} />
               </mesh>
             </group>
           ))}

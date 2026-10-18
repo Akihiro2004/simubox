@@ -9,7 +9,7 @@ import { Mat } from "./assets";
 import { surfaceBump } from "./surfaces";
 
 /** Painted signs use the system font, so the map needs no font download. */
-function Lettering({ text, at, width, height, upright = false }: { text: string; at: Vec3; width: number; height: number; upright?: boolean }) {
+export function Lettering({ text, at, width, height, upright = false }: { text: string; at: Vec3; width: number; height: number; upright?: boolean }) {
   const texture = useMemo(() => {
     const canvas = document.createElement("canvas");
     canvas.width = 768;

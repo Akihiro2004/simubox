@@ -13,6 +13,7 @@ import { ENV_PRESETS, LIGHTS } from "../environment";
 import { PeriodicTableFields } from "../periodic-table";
 import { LIGHT_COLOR_IDS, OPTIC_KINDS, OPTIC_MATERIAL_IDS, OPTIC_PRESETS, SOURCE_KINDS, TABLE } from "../engine/optics";
 import { PLAN, SIGNAL_KIND_IDS, SIGNAL_LAYOUTS, WALL_MATERIALS } from "../engine/waves";
+import { MechanicsFields, MathFields } from "../experiments";
 
 export const SCHEMA_VERSION = 1;
 
@@ -31,9 +32,11 @@ export const RIPPLE_BARRIERS = ["none", "wall", "gap", "double_slit", "reflector
 
 /** Placeholders the client fills from deterministic engine results. */
 export const PLACEHOLDERS = [
+  "mechanics_time", "mechanics_velocity", "mechanics_velocity2", "mechanics_acceleration", "mechanics_force", "mechanics_momentum", "mechanics_total_momentum", "mechanics_kinetic", "mechanics_potential", "mechanics_impulse", "mechanics_distance", "mechanics_period", "math_answer", "math_formula",
   "range", "flight_time", "max_height", "speed", "angle", "gravity", "impact_speed",
   "current", "total_resistance", "power", "voltage",
   "wave_speed", "wave_period",
+  "wind_speed",
   "torque_left", "torque_right", "balance_distance",
   "phase", "rms_speed", "temperature",
   "day", "season", "moon_phase", "moon_lit",
@@ -68,6 +71,8 @@ export const ARG_PLACEHOLDERS = {
  * are partial and strict: unknown fields are rejected so mistakes get repaired.
  */
 export const MODULE_FIELDS = {
+  mechanics: MechanicsFields.partial(),
+  maths: MathFields.partial(),
   orbits: z.strictObject({ mode: z.enum(["solar_system", "earth_moon", "seasons"]), planets: z.array(z.enum(PLANET_IDS)).min(1).max(8), focus: z.enum([...PLANET_IDS, "sun", "moon"]).nullable(), daysPerSecond: num(0, 400), labels: z.boolean(), distances: z.partialRecord(z.enum(PLANET_IDS), num(0.1, 60)) }).partial(),
   fluid: z.strictObject({ fluid: z.enum(FLUID_IDS) }).partial(),
   circuit: z.strictObject({ layout: z.enum(["series", "parallel"]), voltage: num(0, 24), bulbs: z.number().int().min(1).max(4), resistanceOhms: num(1, 100), switchClosed: z.boolean(), brokenBulbs: z.array(z.number().int().min(1).max(4)).max(4) }).partial(),
@@ -76,7 +81,7 @@ export const MODULE_FIELDS = {
   particles: z.strictObject({ substance: z.enum(SUBSTANCE_IDS), temperatureC: num(-273, 3500) }).partial(),
   cell: z.strictObject({ kind: z.enum(CELL_KINDS), highlight: z.enum(Object.keys(ORGANELLES) as [string, ...string[]]).nullable() }).partial(),
   globe: z.strictObject({ view: z.enum(["globe", "map"]), spin: z.boolean(), focus: z.enum(PLACE_IDS).nullable() }).partial(),
-  ripple: z.strictObject({ frequencyHz: num(0.3, 3), amplitude: num(0.004, 0.03), depthM: num(0.02, 0.5), source: z.enum(RIPPLE_SOURCES), separationM: num(0.1, 1.2), barrier: z.enum(RIPPLE_BARRIERS), gapWidthM: num(0.05, 1), barrierX: num(-1, 1.3), reflectorAngleDeg: num(-60, 60), shallow: z.boolean(), shallowDepthM: num(0.01, 0.2), sourceSpeed: num(0, 0.5), view: z.enum(["waves", "intensity"]) }).partial(),
+  ripple: z.strictObject({ windSpeedMps: num(0, 20).nullable(), frequencyHz: num(0.3, 3), amplitude: num(0.004, 0.03), depthM: num(0.02, 0.5), source: z.enum(RIPPLE_SOURCES), separationM: num(0.1, 1.2), barrier: z.enum(RIPPLE_BARRIERS), gapWidthM: num(0.05, 1), barrierX: num(-1, 1.3), reflectorAngleDeg: num(-60, 60), shallow: z.boolean(), shallowDepthM: num(0.01, 0.2), sourceSpeed: num(0, 0.5), view: z.enum(["waves", "intensity"]) }).partial(),
   signal: z.strictObject({ kind: z.enum(SIGNAL_KIND_IDS), soundHz: num(50, 8000), layout: z.enum(SIGNAL_LAYOUTS), walls: z.array(z.object({ id: Id, from: planXZ, to: planXZ, material: z.enum(WALL_MATERIALS) })).max(16), allWalls: z.enum(WALL_MATERIALS), source: planXZ, device: planXZ, view: z.enum(["both", "waves", "strength"]) }).partial(),
   optics: z.strictObject({ sourceKind: z.enum(SOURCE_KINDS), sourcePosition: tableXZ, angleDeg: num(-360, 360), color: z.enum(LIGHT_COLOR_IDS), wavelengthNm: num(380, 780).nullable(), reachM: num(0.1, 4), reflections: z.boolean(), lighting: z.enum(["bright", "dim"]), rays: z.number().int().min(1).max(9), spread: num(0.1, 120), aimAt: Id.nullable(), medium: z.enum(["air", "water"]), normals: z.boolean(), object: z.object({ target: Id, distanceM: num(0.2, 2.6), heightM: num(-0.6, 0.6) }).nullable(), mixing: z.object({ red: z.boolean(), green: z.boolean(), blue: z.boolean() }).nullable() }).partial(),
 } as const;
@@ -84,6 +89,8 @@ export type ModuleName = keyof typeof MODULE_FIELDS;
 export const MODULE_NAMES = Object.keys(MODULE_FIELDS) as [ModuleName, ...ModuleName[]];
 
 export const Command = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("show_mechanics"), ...MechanicsFields.partial().shape }),
+  z.object({ op: z.literal("show_math"), ...MathFields.partial().shape }),
   z.object({ op: z.literal("show_periodic_table"), ...PeriodicTableFields, focus: z.boolean().optional().describe("face the lab wall table; defaults true") }),
   z.object({ op: z.literal("load_world"), world: z.enum(WORLD_IDS) }),
   z.object({
@@ -305,6 +312,7 @@ export const Command = z.discriminatedUnion("op", [
   z.object({ op: z.literal("connect_places"), id: Id, from: Id, to: Id }),
   z.object({
     op: z.literal("show_ripple_tank"),
+    windSpeedMps: num(0, 20).optional().describe("qualitative wind driver; zero = calm. Stronger driver creates larger ripples, not an ocean wave-height forecast"),
     source: z.enum(RIPPLE_SOURCES).optional().describe("point = one dipper; two_point = two dippers in step (interference); plane = a straight bar (straight waves)"),
     frequencyHz: num(0.3, 3).optional(),
     depthM: num(0.02, 0.5).optional().describe("water depth; shallower water makes slower, shorter waves"),
@@ -368,7 +376,7 @@ export const Step = z.object({
 });
 export type Step = z.infer<typeof Step>;
 
-export const CAPABILITIES = ["gravity", "projectile", "molecule", "atom", "orbits", "buoyancy", "graph", "geometry", "circuit", "waves", "lever", "matter", "cell", "globe", "concept", "none", "light", "signal"] as const;
+export const CAPABILITIES = ["gravity", "projectile", "molecule", "atom", "orbits", "buoyancy", "graph", "geometry", "circuit", "waves", "lever", "matter", "cell", "globe", "concept", "none", "light", "signal", "mechanics", "maths"] as const;
 export type CapabilityId = (typeof CAPABILITIES)[number];
 
 export const ScenePlan = z.object({

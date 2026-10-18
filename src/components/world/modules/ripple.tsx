@@ -10,7 +10,8 @@ import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import { BufferAttribute, Color, DoubleSide, PlaneGeometry, type Mesh } from "three";
 import { Html } from "@/components/world/html";
-import { RIPPLE_TANK, type RippleState } from "@/lib/modules";
+import { RIPPLE_TANK, windDrivenRipple, type RippleState } from "@/lib/modules";
+import { useSim } from "@/lib/store";
 import { WaveField, discCells, paintSegment, type Driver } from "@/lib/engine/wave2d";
 import { doppler, formatFrequency, formatLength, formatSpeed, waterWave } from "@/lib/engine/waves";
 import { Mat } from "../assets";
@@ -109,10 +110,12 @@ interface Sim {
   still: Driver[];
 }
 
-export function RippleTank({ r, animate }: { r: RippleState; animate: boolean }) {
+export function RippleTank({ r: raw, animate }: { r: RippleState; animate: boolean }) {
+  const r = useMemo(() => windDrivenRipple(raw), [raw]);
   const mesh = useRef<Mesh>(null);
   const dippers = useRef<Mesh[]>([]);
   const sim = useRef<Sim | null>(null);
+  const drawn = useRef<{ key: string; view: RippleState["view"] } | null>(null);
   const { frequency, depth, source, separation, barrier, gapWidth, barrierX, sourceSpeed, shallow, shallowDepth } = r;
   // Amplitude and view only change the drawing, so they don't restart the waves.
   const key = JSON.stringify([frequency, depth, source, separation, barrier, gapWidth, barrierX, r.reflectorAngle, shallow, shallowDepth, sourceSpeed, r.amplitude, animate]);
@@ -121,6 +124,10 @@ export function RippleTank({ r, animate }: { r: RippleState; animate: boolean })
   useFrame((_, dt) => {
     const m = mesh.current;
     if (!m) return;
+    const running = animate && !useSim.getState().paused;
+    // A settled or paused field has identical vertices, colours and normals.
+    // Keep the existing GPU buffers until either its input or display changes.
+    if (!running && drawn.current?.key === key && drawn.current.view === r.view) return;
     if (sim.current?.key !== key) {
       const field = buildField(r);
       sim.current = { key, field, still: drivers(r, field, 0) };
@@ -129,7 +136,7 @@ export function RippleTank({ r, animate }: { r: RippleState; animate: boolean })
     }
     const { field, still } = sim.current;
     const cur = r;
-    if (animate) field.advance(Math.min(dt, 1 / 15), moving ? drivers(cur, field, field.time) : still, 12);
+    if (running) field.advance(Math.min(dt, 1 / 15), moving ? drivers(cur, field, field.time) : still, 12);
     const g = m.geometry;
     if (!g.getAttribute("color")) g.setAttribute("color", new BufferAttribute(new Float32Array(NX * NY * 3), 3));
     const pos = g.getAttribute("position") as BufferAttribute;
@@ -160,13 +167,14 @@ export function RippleTank({ r, animate }: { r: RippleState; animate: boolean })
       }
     }
     pos.needsUpdate = col.needsUpdate = nor.needsUpdate = true;
+    if (drawn.current?.key !== key || drawn.current.view !== r.view) drawn.current = { key, view: r.view };
     // Dippers bob with the source.
     const pts = cur.source === "plane" ? [[BAR_X, 0] as [number, number]] : sourcePoints(cur);
     pts.forEach(([x, z], i) => {
       const d = dippers.current[i];
       if (!d) return;
       const s = Math.sin(2 * Math.PI * cur.frequency * field.time);
-      d.position.set(cur.source === "plane" ? BAR_X : movingX(cur, x, field.time), 0.06 + s * 0.025, z);
+      d.position.set(cur.source === "plane" ? BAR_X : movingX(cur, x, field.time), 0.06 + s * 0.025 * (cur.windSpeed === undefined ? 1 : Math.min(1, cur.windSpeed / 10)), z);
     });
   });
 
@@ -178,6 +186,11 @@ export function RippleTank({ r, animate }: { r: RippleState; animate: boolean })
 
   return (
     <group position={[cx, cy, cz]}>
+      {r.windSpeed !== undefined && <group position={[-1.5, .6, -1.3]}>
+        <mesh rotation={[0, Math.PI / 2, 0]}><cylinderGeometry args={[.22, .22, .25, 20]} /><Mat c="#78938e" /></mesh>
+        <mesh position={[0, -.3, 0]}><boxGeometry args={[.1, .5, .1]} /><Mat c="#a4b7b0" /></mesh>
+        <Html position={[.6, .45, 0]} center zIndexRange={[5, 0]} style={{ pointerEvents: "none" }}><span className="tag whitespace-nowrap text-[11px]">Wind → {r.windSpeed} m/s · qualitative forcing, not ocean height</span></Html>
+      </group>}
       {/* Stand and glass tank. */}
       <RoundedBox args={[2 * HX + 0.3, 0.08, 2 * HZ + 0.3]} radius={0.03} position={[0, -0.16, 0]} receiveShadow castShadow>
         <Mat c="#6d7b86" r={0.6} />

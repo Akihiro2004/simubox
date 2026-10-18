@@ -1,11 +1,13 @@
 "use client";
+import { MechanicsControls, SchoolMathControls } from "./learning-controls";
 
 import { Camera, Focus, Hand, House, MessageCircle, PartyPopper, Pause, Play, RotateCcw, Rocket, SlidersHorizontal, Trash, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useSim, projectileResult } from "@/lib/store";
-import { execNow } from "@/lib/player";
+import { cancelPlayback, execNow, runPlan, skipSpeech } from "@/lib/player";
 import { GRAVITY_PRESETS, fmt } from "@/lib/engine/projectile";
+import { applyEnvironment, environmentForGravity, isGiantPlanet } from "@/lib/environment";
 import { ELEMENTS, MOLECULES, MOLECULE_IDS, type MoleculeId } from "@/lib/engine/chemistry";
 import { ASSETS, GUIDE_ID, LIMITS } from "@/lib/world/catalog";
 import { MODULE_DEFAULTS, OPTICS_TABLE, opticsTrace, patchOptics, patchSignal, signalReception, type Modules, type OpticsPatch, type RippleState, type SignalPatch, type SignalState } from "@/lib/modules";
@@ -20,6 +22,8 @@ import { MATERIALS, SUBSTANCES, SUBSTANCE_IDS, phaseAt, type MaterialId, type Su
 import { objectName } from "@/lib/world/scene";
 import { getBody, livePosition, liveSpeed } from "@/lib/world/runtime";
 import { EMPTY_TABLE, PERIODIC_ELEMENTS } from "@/lib/periodic-table";
+import { periodicLesson } from "@/lib/periodic-lesson";
+import "./table-controls.css";
 
 // ---------- small building blocks ----------
 
@@ -91,6 +95,7 @@ const BALLS = [
 
 function ProjectileControls() {
   const p = useSim((s) => s.projectile);
+  const environment = useSim(s => s.environment?.preset);
   const timeScale = useSim((s) => s.timeScale);
   const setProjectile = useSim((s) => s.setProjectile);
   const set = useSim((s) => s.set);
@@ -107,7 +112,12 @@ function ProjectileControls() {
         <Slider label="Launch height" min={0} max={10} step={0.5} value={p.height} display={fmt(p.height, "m", 1)} onChange={(height) => edit({ height })} onCommit={launch} />
       </div>
       <Caption>Gravity</Caption>
-      <Seg label="Gravity" value={nearestPreset(p.gravity)} options={gravityOptions} onChange={(gravity) => setProjectile({ gravity }, true)} cols={3} />
+      <Seg label="Gravity" value={nearestPreset(p.gravity)} options={gravityOptions} onChange={(gravity) => {
+        const preset = environmentForGravity(gravity);
+        if (preset) useSim.getState().set({ environment: applyEnvironment(null, { preset }) });
+        setProjectile({ gravity }, true);
+      }} cols={3} />
+      {isGiantPlanet(environment) && <Note>Gravity simulation deck. This planet has no solid surface to stand on. The launch uses idealized constant gravity without air resistance.</Note>}
       <div className="group-rows mt-2">
         <Slider label="Gravity acceleration" min={0} max={LIMITS.maxGravity} step={0.01} value={p.gravity} display={fmt(p.gravity, "m/s²")} sub={`${(p.gravity / 9.81).toFixed(2)}× Earth`} onChange={(gravity) => edit({ gravity })} onCommit={launch} />
       </div>
@@ -378,8 +388,10 @@ function RippleControls({ r }: { r: RippleState }) {
   const shallow = r.shallow ? waterWave(r.frequency, r.shallowDepth) : null;
   return (
     <>
-      <Caption>Dipper</Caption>
-      <Seg label="Wave source" value={r.source} options={[["point", "One"], ["two_point", "Two"], ["plane", "Straight"]] as const} onChange={(source) => set({ source })} />
+      <Toggle label="Wind-driven waves (qualitative)" checked={r.windSpeed !== undefined} onChange={enabled => set({ windSpeed: enabled ? 8 : undefined, ...(enabled ? { source: "plane", sourceSpeed: 0 } : {}) })} />
+      {r.windSpeed !== undefined && <><Slider label="Wind strength" min={0} max={20} step={1} value={r.windSpeed} display={`${r.windSpeed} m/s`} onChange={windSpeed => set({ windSpeed })} /><Note>Wind transfers energy to water. This driver illustrates stronger forcing; it does not predict ocean wave heights. Real growth also depends on wind duration and fetch.</Note></>}
+      {r.windSpeed === undefined && <><Caption>Dipper</Caption>
+      <Seg label="Wave source" value={r.source} options={[["point", "One"], ["two_point", "Two"], ["plane", "Straight"]] as const} onChange={(source) => set({ source })} /></>}
       <div className="group-rows mt-2">
         <Slider label="Frequency" min={0.3} max={3} step={0.1} value={r.frequency} display={formatFrequency(r.frequency)} onChange={(frequency) => set({ frequency })} />
         <Slider label="Water depth" min={0.02} max={0.5} step={0.01} value={r.depth} display={formatLength(r.depth)} onChange={(depth) => set({ depth })} />
@@ -566,6 +578,8 @@ function LabControls() {
   const readingTable = useSim((s) => s.camera.preset === "periodic_table");
   const table = useSim((s) => s.modules.periodicTable) ?? EMPTY_TABLE;
   const element = table.elements.length === 1 ? PERIODIC_ELEMENTS[table.elements[0] - 1] : null;
+  const busy = useSim(s => s.aiStatus !== "idle");
+  const tableAction = (command: Parameters<typeof execNow>[0]) => { cancelPlayback(); execNow(command); };
   const active = readingTable ? "table" : particles ? "matter" : cell ? "cell" : "chem";
   const pick = (k: typeof active) => {
     if (k === "table") { execNow({ op: "show_periodic_table" }); return; }
@@ -582,7 +596,7 @@ function LabControls() {
         <select aria-label="Find an element" className="mt-1 w-full rounded-xl bg-white/80 px-3 py-2.5 text-sm" value={table.elements.length === 1 ? table.elements[0] : ""} onChange={(e) => {
           if (!e.target.value) return;
           const el = PERIODIC_ELEMENTS[Number(e.target.value) - 1];
-          execNow({ op: "show_periodic_table", elements: [el.number], groups: [], periods: [], caption: `${el.number} · ${el.name} (${el.symbol}) · Period ${el.period}${el.group ? ` · Group ${el.group}` : ""}`, focus: false });
+          tableAction({ op: "show_periodic_table", elements: [el.number], groups: [], periods: [], caption: `${el.number} · ${el.name} (${el.symbol}) · Period ${el.period}${el.group ? ` · Group ${el.group}` : ""}`, focus: false });
         }}>
           <option value="">Find an element…</option>
           {PERIODIC_ELEMENTS.map((e) => <option key={e.number} value={e.number}>{e.number} · {e.symbol} · {e.name}</option>)}
@@ -591,8 +605,16 @@ function LabControls() {
           <p className="font-bold">{element.name} · {element.symbol} · {element.number}</p>
           <p>Period {element.period} · {element.group ? `Group ${element.group}` : element.series}</p>
           <p>{element.weight.startsWith("[") ? "Isotope mass number" : "Abridged atomic weight"}: {element.weight}</p>
+          <p className="mt-2 leading-relaxed text-ink-2">Atomic number {element.number} means {element.number} protons. A neutral {element.name.toLowerCase()} atom has {element.number} electrons.</p>
+          <p className="mt-1 leading-relaxed text-ink-2">{element.weight.startsWith("[") ? "The bracketed value is an isotope’s mass number, not a standard atomic weight." : "Atomic weight describes the relative average mass for an element’s natural isotope mixture. It does not give an exact neutron count."}</p>
         </div>}
-        <button className="btn btn-soft mt-2 w-full" onClick={() => execNow({ op: "show_periodic_table", ...EMPTY_TABLE, focus: false })}>Clear table markings</button>
+        {element && <div className="mt-2 grid grid-cols-2 gap-2">
+          <button className="btn btn-soft rounded-xl px-3 py-2 text-sm" onClick={() => tableAction({ op: "show_periodic_table", elements: element.group ? [element.number] : PERIODIC_ELEMENTS.filter(e => e.series === element.series).map(e => e.number), groups: element.group ? [element.group] : [], periods: [], focus: false, caption: element.group ? `${element.name} belongs to Group ${element.group}` : `${element.name} belongs to the ${element.series} series` })}>Show its {element.group ? "group" : "series"}</button>
+          <button className="btn btn-soft rounded-xl px-3 py-2 text-sm" onClick={() => tableAction({ op: "show_periodic_table", elements: [element.number], groups: [], periods: [element.period], focus: false, caption: `${element.name} is in Period ${element.period}` })}>Show its period</button>
+          <button className="btn btn-ink col-span-2 rounded-xl px-3 py-2 text-sm" disabled={busy} onClick={() => void runPlan(periodicLesson(element.number), "local")}>Explain {element.name}</button>
+        </div>}
+        <button className="btn btn-soft mt-2 w-full rounded-xl px-3 py-2 text-sm" disabled={busy} onClick={() => void runPlan(periodicLesson(), "local")}>Explain how to read the table</button>
+        <button className="btn btn-soft mt-2 w-full" onClick={() => tableAction({ op: "show_periodic_table", ...EMPTY_TABLE, focus: false })}>Clear table markings</button>
         <Note>Tap an element or ask about groups, periods, and trends. Simu can circle elements and draw on this table.</Note>
       </>}
       {active === "chem" && <ChemControls />}
@@ -638,6 +660,27 @@ function LabControls() {
       )}
     </>
   );
+}
+
+/** Always available even when Controls is collapsed in the close table view. */
+export function TableViewActions() {
+  const showing = useSim(s => s.world === "lab" && s.camera.preset === "periodic_table");
+  const speech = useSim(s => s.speech);
+  const tableReply = useSim(s => {
+    const command = s.lastPlan?.steps[0]?.commands.find(c => c.op === "show_periodic_table");
+    const selected = s.modules.periodicTable?.elements;
+    return command?.op === "show_periodic_table" && selected?.length === 1 && command.elements?.includes(selected[0]) ? s.explanation?.reply : null;
+  });
+  if (!showing) return null;
+  return <><nav aria-label="Periodic table view" className="table-view-actions pointer-events-auto fixed left-1/2 z-40 flex -translate-x-1/2 gap-1 rounded-full glass p-1">
+    <button className="btn rounded-full px-3 py-2 text-[12px] font-bold" onClick={() => { cancelPlayback(); useSim.getState().focus({ preset: "home" }); }}>Back to lab</button>
+    <button className="btn rounded-full px-3 py-2 text-[12px] font-bold" onClick={() => useSim.getState().focus({ preset: "periodic_table" })}>Fit table</button>
+  </nav>
+    {(speech || tableReply) && <div className="table-lesson-caption glass" role="status" aria-live="polite">
+      <p>{speech?.text ?? tableReply}</p>
+      {speech && <button className="btn btn-quiet mt-2 rounded-full px-3 py-1 text-[12px] font-bold" onClick={skipSpeech}>Next</button>}
+    </div>}
+  </>;
 }
 
 // ---------- shared card shell ----------
@@ -747,6 +790,8 @@ const subscribeWide = (cb: () => void) => {
 function useControls() {
   const world = useSim((s) => s.world);
   switch (world) {
+    case "mechanics": return { name: "Mechanics lab", body: <MechanicsControls /> };
+    case "math_studio": return { name: "Math studio", body: <SchoolMathControls /> };
     case "court":
       return { name: "Throwing", body: <ProjectileControls /> };
     case "lab":

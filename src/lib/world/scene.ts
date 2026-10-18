@@ -166,6 +166,8 @@ export function initialObjects(world: WorldId): SceneObject[] {
         assetObject("lab_stool", "stool", [-2.3, .3, -3.1], { color: "#708f89" }),
       ];
     case "stage":
+    case "mechanics":
+    case "math_studio":
     case "space":
     case "math":
     case "globe":

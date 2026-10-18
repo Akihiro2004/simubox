@@ -18,6 +18,7 @@ import { MAX_OPTICS, TABLE, opticsPreset, sourcePosition, type OpticElement } fr
 import { PLACES } from "./engine/geo";
 import type { ShapeKind } from "./engine/geometry";
 import { EMPTY_TABLE } from "./periodic-table";
+import { DEFAULT_MECHANICS, DEFAULT_MATH, MechanicsFields, MathFields, mathSetupError, type MathState } from "./experiments";
 
 let controller: AbortController | null = null;
 let skipLine: (() => void) | null = null;
@@ -206,6 +207,14 @@ function setModules(patch: Partial<Modules>) {
   s.set({ modules: { ...s.modules, ...patch } });
 }
 
+function setMaths(next: MathState) {
+  const error = mathSetupError(next);
+  if (error) { st().set({ aiError: error }); return; }
+  setModules({ maths: next, plot: next.mode === "functions" ? {
+    functions: [{ id: "math_function", expression: next.expression, xMin: -10, xMax: 10, color: "#267e87" }], points: [], vectors: [],
+  } : null });
+}
+
 /** Molecules, atoms, particles and cells share the lab pedestal: one at a time. */
 function clearPedestal(keep: "chem" | "particles" | "cell" | "table") {
   const s = st();
@@ -258,6 +267,8 @@ let subject: string | Vec3 | null = null;
 /** The thing a command acts on, if it acts on one specific thing. */
 function subjectOf(c: Command): string | Vec3 | null {
   switch (c.op) {
+    case "show_mechanics": return [0, 1, 0];
+    case "show_math": return [0, 2, 0];
     case "spawn_asset":
     case "spawn_primitive":
     case "spawn_shape":
@@ -324,6 +335,19 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
   if (about) subject = about;
   if (c.op === "load_world") subject = null;
   switch (c.op) {
+    case "show_mechanics": {
+      if (s.world !== "mechanics") s.loadWorld("mechanics");
+      const setup = { ...DEFAULT_MECHANICS, ...MechanicsFields.partial().parse(Object.fromEntries(Object.entries(c).filter(([key]) => key !== "op"))) };
+      setModules({ mechanics: setup });
+      st().set({ capability: "mechanics", paused: false, gravity: [0, -setup.gravity, 0] });
+      return;
+    }
+    case "show_math": {
+      if (s.world !== "math_studio") s.loadWorld("math_studio");
+      setMaths({ ...DEFAULT_MATH, ...MathFields.partial().parse(Object.fromEntries(Object.entries(c).filter(([key]) => key !== "op"))) });
+      st().set({ capability: "maths" });
+      return;
+    }
     case "load_world":
       s.loadWorld(c.world);
       await sleep(450, signal);
@@ -426,6 +450,7 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       return;
     case "set_gravity":
       s.set({ gravity: c.gravity as Vec3, paused: false });
+      if (s.world === "mechanics" && s.modules.mechanics && c.gravity[0] === 0 && c.gravity[2] === 0 && c.gravity[1] <= 0 && c.gravity[1] >= -100) setModules({ mechanics: { ...s.modules.mechanics, gravity: -c.gravity[1] } });
       if (s.world === "court" && c.gravity[0] === 0 && c.gravity[2] === 0 && c.gravity[1] <= 0) s.setProjectile({ gravity: -c.gravity[1] }, true);
       wakeAll();
       return;
@@ -501,6 +526,7 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
         s.set({ paused: false });
       } else if (c.name === "gravity") {
         s.set({ gravity: [0, -Math.min(Math.max(c.value, 0), LIMITS.maxGravity), 0], paused: false });
+        if (s.world === "mechanics" && s.modules.mechanics && c.value <= 100) setModules({ mechanics: { ...s.modules.mechanics, gravity: Math.max(c.value, 0) } });
         wakeAll();
       } else {
         const m = s.modules;
@@ -601,6 +627,15 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
     case "set_module": {
       const m = s.modules;
       switch (c.module) {
+        case "mechanics": {
+          const setup = { ...(m.mechanics ?? DEFAULT_MECHANICS), ...MODULE_FIELDS.mechanics.parse(c.set) };
+          setModules({ mechanics: setup });
+          s.set({ gravity: [0, -setup.gravity, 0] });
+          break;
+        }
+        case "maths":
+          setMaths({ ...(m.maths ?? DEFAULT_MATH), ...MODULE_FIELDS.maths.parse(c.set) });
+          break;
         case "orbits":
           setModules({ orbits: { ...(m.orbits ?? MODULE_DEFAULTS.orbits), ...MODULE_FIELDS.orbits.parse(c.set) } });
           break;
@@ -639,10 +674,11 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
           const cur = m.ripple ?? MODULE_DEFAULTS.ripple;
           const next = {
             ...cur,
+            ...(p.windSpeedMps !== undefined ? { windSpeed: p.windSpeedMps === null ? undefined : p.windSpeedMps, ...(p.windSpeedMps === null ? {} : { source: "plane" as const, sourceSpeed: 0 }) } : {}),
             frequency: p.frequencyHz ?? cur.frequency,
             amplitude: p.amplitude ?? cur.amplitude,
             depth: p.depthM ?? cur.depth,
-            source: p.source ?? cur.source,
+            source: p.windSpeedMps != null ? "plane" as const : p.source ?? cur.source,
             separation: p.separationM ?? cur.separation,
             barrier: p.barrier ?? cur.barrier,
             gapWidth: p.gapWidthM ?? cur.gapWidth,
@@ -650,7 +686,7 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
             reflectorAngle: p.reflectorAngleDeg ?? cur.reflectorAngle,
             shallow: p.shallow ?? cur.shallow,
             shallowDepth: p.shallowDepthM ?? cur.shallowDepth,
-            sourceSpeed: p.sourceSpeed ?? cur.sourceSpeed,
+            sourceSpeed: p.windSpeedMps != null ? 0 : p.sourceSpeed ?? cur.sourceSpeed,
             view: p.view ?? cur.view,
           };
           // The tank takes the middle of the workshop mat.
@@ -678,6 +714,7 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       wakeAll();
       return;
     case "plot_function": {
+      if (s.world === "math_studio" && s.modules.maths?.mode === "functions") setModules({ maths: { ...s.modules.maths, expression: c.expression } });
       const plot = s.modules.plot ?? { functions: [], points: [], vectors: [] };
       const rest = plot.functions.filter((p) => p.id !== c.id).slice(-5);
       const fn = { id: c.id, expression: c.expression, xMin: c.xMin ?? -10, xMax: c.xMax ?? 10, color: c.color ?? PLOT_COLORS[rest.length % PLOT_COLORS.length], label: c.label };
@@ -721,7 +758,7 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       const d = MODULE_DEFAULTS.ripple;
       const first = !s.modules.ripple;
       setModules({
-        ripple: { ...d, source: c.source ?? d.source, frequency: c.frequencyHz ?? d.frequency, depth: c.depthM ?? d.depth, barrier: c.barrier ?? d.barrier, gapWidth: c.gapWidthM ?? d.gapWidth, separation: c.separationM ?? d.separation, shallow: c.shallow ?? d.shallow, sourceSpeed: c.sourceSpeed ?? d.sourceSpeed, view: c.view ?? d.view },
+        ripple: { ...d, ...(c.windSpeedMps !== undefined ? { windSpeed: c.windSpeedMps } : {}), source: c.windSpeedMps !== undefined ? "plane" : c.source ?? d.source, frequency: c.frequencyHz ?? d.frequency, depth: c.depthM ?? d.depth, barrier: c.barrier ?? d.barrier, gapWidth: c.gapWidthM ?? d.gapWidth, separation: c.separationM ?? d.separation, shallow: c.shallow ?? d.shallow, sourceSpeed: c.sourceSpeed ?? d.sourceSpeed, view: c.view ?? d.view },
         wave: null,
         lever: null,
         circuit: null,

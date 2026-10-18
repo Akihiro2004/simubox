@@ -1,13 +1,14 @@
 "use client";
 
 import { PerformanceMonitor } from "@react-three/drei";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
 import { Physics } from "@react-three/rapier";
-import { Suspense, useState } from "react";
+import { Suspense, useRef, useState } from "react";
 import { NeutralToneMapping } from "three";
 import { useShallow } from "zustand/react/shallow";
 import { useSim } from "@/lib/store";
 import { useMotion } from "@/lib/useMotion";
+import { usePageVisible } from "@/lib/usePageVisible";
 import { useBuilder } from "@/lib/builder/store";
 import { WORLDS } from "@/lib/world/catalog";
 import { CameraRig } from "./camera";
@@ -19,28 +20,17 @@ import { ProjectileStage } from "./projectile";
 import { WorldDecor } from "./worlds";
 import { EnvironmentLayer, MOOD } from "./environment";
 import { Buoyancy, Water } from "./modules/fluid";
-import { SpaceModule } from "./modules/space";
-import { GlobeModule } from "./modules/globe";
-import { MathModule } from "./modules/math";
-import { WorkshopModules } from "./modules/workshop";
-import { CellModule, ParticlesModule } from "./modules/lab";
-import { SignalModule } from "./modules/signal";
-import { OpticsModule } from "./modules/optics";
+import { ScienceModules } from "./science-modules";
 
-/** Science modules render themselves only when their state is active. */
-function ModuleScenes({ animate }: { animate: boolean }) {
-  return (
-    <>
-      <SpaceModule />
-      <GlobeModule animate={animate} />
-      <MathModule />
-      <WorkshopModules animate={animate} />
-      <ParticlesModule animate={animate} />
-      <CellModule animate={animate} />
-      <SignalModule animate={animate} />
-      <OpticsModule />
-    </>
-  );
+function ContinuousClock() {
+  const elapsed = useRef(0);
+  // R3F resets elapsedTime when changing frameloop. Keep animation timelines
+  // continuous across background/shop pauses, before any scene callbacks run.
+  useFrame(({ clock }) => {
+    if (clock.elapsedTime < elapsed.current) clock.elapsedTime += elapsed.current;
+    elapsed.current = clock.elapsedTime;
+  }, -1000);
+  return null;
 }
 
 function Characters({ animate }: { animate: boolean }) {
@@ -65,7 +55,7 @@ function Lights({ shadows, mapSize }: { shadows: boolean; mapSize: number }) {
   const space = world === "space";
   const opticsLighting = useSim((s) => s.modules.optics?.lighting);
   const dark = world === "optics";
-  const indoor = world === "bedroom" || world === "lab" || world === "workshop" || dark;
+  const indoor = world === "bedroom" || world === "lab" || world === "workshop" || world === "mechanics" || world === "math_studio" || dark;
   const t = WORLDS[world].camera.target;
   const mood = light === "day" ? null : MOOD[light];
   const dim = dark && !mood ? opticsLighting === "dim" ? 0.48 : 0.88 : 1;
@@ -108,7 +98,7 @@ function World({ animate }: { animate: boolean }) {
         {world === "ocean" && <Buoyancy />}
       </Physics>
       {world === "ocean" && <Water />}
-      <ModuleScenes key={`m${worldNonce}`} animate={animate} />
+      <ScienceModules key={`m${worldNonce}`} animate={animate} />
       <Characters key={`c${worldNonce}`} animate={animate} />
       {world === "court" && <ProjectileStage key={`p${worldNonce}`} animate={animate} />}
       <Overlays />
@@ -118,11 +108,13 @@ function World({ animate }: { animate: boolean }) {
 
 export default function SimuCanvas() {
   const shopOpen = useBuilder((s) => s.open);
+  const visible = usePageVisible();
   const animate = useMotion();
   const setting = useSim((s) => s.settings.quality);
   // Phones and small GPUs start at medium; PerformanceMonitor adjusts from there.
   const [auto, setAuto] = useState<"low" | "medium" | "high">(() => (window.matchMedia("(max-width: 700px)").matches || (navigator.hardwareConcurrency ?? 8) <= 4 ? "medium" : "high"));
   const [lost, setLost] = useState(false);
+  const suspended = shopOpen || !visible || lost;
   const quality = setting === "auto" ? auto : setting;
 
   const dpr: [number, number] = quality === "low" ? [1, 1] : quality === "medium" ? [1, 1.5] : [1, 2];
@@ -131,7 +123,7 @@ export default function SimuCanvas() {
   return (
     <>
       <Canvas
-        frameloop={shopOpen ? "never" : "always"}
+        frameloop={suspended ? "never" : "always"}
         className="simu-canvas"
         shadows={shadows}
         dpr={dpr}
@@ -149,7 +141,8 @@ export default function SimuCanvas() {
         }}
         aria-label="Interactive 3D science world"
       >
-        {setting === "auto" && (
+        <ContinuousClock />
+        {setting === "auto" && !suspended && (
           <PerformanceMonitor onDecline={() => setAuto((q) => (q === "high" ? "medium" : "low"))} flipflops={2} onFallback={() => setAuto("low")} />
         )}
         <Lights shadows={shadows} mapSize={quality === "high" ? 2048 : 1024} />

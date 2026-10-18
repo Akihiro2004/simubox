@@ -8,6 +8,9 @@ import { FLUIDS, MATERIALS, floatFraction, phaseAt, rmsSpeed, solveCircuit, solv
 import { measureShape } from "./engine/geometry";
 import type { CellKind } from "./engine/biology";
 import { EMPTY_TABLE, type PeriodicTableState } from "./periodic-table";
+import { DEFAULT_MECHANICS, DEFAULT_MATH, type MechanicsState, type MathState } from "./experiments";
+import { mechanicsAt } from "./engine/mechanics";
+import { schoolMath } from "./engine/school-math";
 import type { SceneObject } from "./world/scene";
 import { ASSETS, type WorldId } from "./world/catalog";
 import { TABLE, criticalAngle, elementImage, fresnelReflectance, lightSpeedIn, opticsPreset, refractiveIndex, signedFocal, sourcePosition, sourceWavelength, traceOptics, turningHits, type LightSource, type OpticKind, type OpticsSetup, type TraceResult } from "./engine/optics";
@@ -44,6 +47,8 @@ export interface Mark {
 }
 
 export interface RippleState {
+  /** Qualitative wind driver, not an ocean wave-height forecast. */
+  windSpeed?: number;
   frequency: number; // Hz
   /** Height of the ripples drawn (m); it doesn't change their speed. */
   amplitude: number;
@@ -77,7 +82,14 @@ export interface SignalState {
   view: "both" | "waves" | "strength";
 }
 
+export function windDrivenRipple(r: RippleState): RippleState {
+  if (r.windSpeed === undefined) return r;
+  return { ...r, source: "plane", sourceSpeed: 0, amplitude: .03 * Math.min(1, Math.max(0, r.windSpeed) / 20) };
+}
+
 export interface Modules {
+  mechanics?: MechanicsState | null;
+  maths?: MathState | null;
   periodicTable: PeriodicTableState | null;
   orbits: { mode: "solar_system" | "earth_moon" | "seasons"; planets: PlanetId[]; focus: PlanetId | "sun" | "moon" | null; daysPerSecond: number; labels: boolean; /** Planets moved to another distance (AU), e.g. "what if Earth and Neptune swapped?" */ distances: Partial<Record<PlanetId, number>> } | null;
   fluid: FluidId | null;
@@ -105,6 +117,8 @@ export function signalDefaults(kind: SignalKind = "wifi_2_4", layout: SignalLayo
 
 /** Starting state for each module when something switches it on. */
 export const MODULE_DEFAULTS: { [K in keyof Modules]-?: NonNullable<Modules[K]> } = {
+  mechanics: DEFAULT_MECHANICS,
+  maths: DEFAULT_MATH,
   periodicTable: EMPTY_TABLE,
   orbits: { mode: "solar_system", planets: ALL_PLANETS, focus: null, daysPerSecond: 20, labels: true, distances: {} },
   fluid: "fresh_water",
@@ -122,6 +136,8 @@ export const MODULE_DEFAULTS: { [K in keyof Modules]-?: NonNullable<Modules[K]> 
 
 export function defaultModules(world: WorldId): Modules {
   return {
+    mechanics: world === "mechanics" ? { ...DEFAULT_MECHANICS } : null,
+    maths: world === "math_studio" ? { ...DEFAULT_MATH } : null,
     periodicTable: world === "lab" ? EMPTY_TABLE : null,
     orbits: world === "space" ? MODULE_DEFAULTS.orbits : null,
     fluid: world === "ocean" ? MODULE_DEFAULTS.fluid : null,
@@ -400,6 +416,22 @@ function signalValue(name: string, s: SignalState): string | undefined {
 
 /** Value for {{name}} / {{name:arg}} from module state; undefined if not applicable. */
 export function moduleValue(name: string, arg: string | undefined, m: Modules, objects: Record<string, SceneObject>): string | undefined {
+  if (name === "wind_speed") return m.ripple?.windSpeed === undefined ? undefined : `${m.ripple.windSpeed} m/s (qualitative driver)`;
+  if (m.maths && name === "math_answer") return schoolMath(m.maths).answer;
+  if (m.maths && name === "math_formula") return schoolMath(m.maths).formula;
+  if (m.mechanics && name.startsWith("mechanics_")) {
+    const s = m.mechanics, r = mechanicsAt(s);
+    if (s.mode === "pendulum" && ["mechanics_force", "mechanics_impulse", "mechanics_momentum", "mechanics_total_momentum", "mechanics_distance", "mechanics_velocity2"].includes(name)) return undefined;
+    const values: Record<string, [number, string] | null> = {
+      mechanics_time: [s.durationS, "s"], mechanics_velocity: [r.velocity, "m/s"], mechanics_velocity2: [r.velocity2, "m/s"],
+      mechanics_acceleration: [r.acceleration, "m/s²"], mechanics_force: [r.netForce, "N"],
+      mechanics_momentum: [r.momentum, "kg·m/s"], mechanics_total_momentum: [r.momentum + (s.mode === "collision" ? r.momentum2 : 0), "kg·m/s"],
+      mechanics_kinetic: [r.kinetic, "J"], mechanics_potential: [r.potential, "J"], mechanics_impulse: [r.impulse, "N·s"],
+      mechanics_distance: [r.x, "m"], mechanics_period: r.period === null ? null : [r.period, "s"],
+    };
+    const value = values[name];
+    return value ? `${Number(value[0].toFixed(3))} ${value[1]}${s.mode === "pendulum" && ["mechanics_velocity", "mechanics_acceleration"].includes(name) ? " (tangential)" : ""}` : undefined;
+  }
   if ((OPTICS_VALUES as readonly string[]).includes(name)) return m.optics ? opticsValue(name, arg, m.optics) : undefined;
   if ((WATER_VALUES as readonly string[]).includes(name)) return m.ripple ? waterValue(name, m.ripple) : undefined;
   if ((SIGNAL_VALUES as readonly string[]).includes(name)) return m.signal ? signalValue(name, m.signal) : undefined;

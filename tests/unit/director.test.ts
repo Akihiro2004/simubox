@@ -145,6 +145,9 @@ describe("environment follows gravity", () => {
   it("goes back to Earth after a Moon restyle", () => {
     expect(ops(validatePlan(plan([{ op: "set_gravity", gravity: [0, -9.81, 0] }]), { ...sceneFor("court"), environment: { preset: "moon" } }))).toEqual(["env:earth", "set_gravity"]);
   });
+  it("uses the Jupiter deck even when the plan only supplies custom colours", () => {
+    expect(ops(validatePlan(plan([{ op: "set_environment", sky: "#302020" }, { op: "set_gravity", gravity: [0, -24.79, 0] }]), sceneFor("court")))).toEqual(["env:jupiter", "env:undefined", "set_gravity"]);
+  });
 });
 
 describe("isQuotaError", () => {

@@ -1,0 +1,17 @@
+/* Namespaced styles shared by the lazy-loaded learning-room renderers. */
+.tag.lab-label {
+  display: inline-block;
+  max-width: min(440px, calc(100vw - 40px));
+  padding: 6px 10px;
+  border-radius: 12px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 1.45;
+  text-align: center;
+}
+.tag.lab-readout { padding: 11px 16px; border-radius: 16px; }
+.lab-readout-values { margin-top: 5px; color: var(--ink-2); }
+@media (max-width: 700px) {
+  .lab-ruler-mark[data-endpoint="false"] { display: none; }
+}

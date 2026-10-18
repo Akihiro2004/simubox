@@ -16,7 +16,7 @@ import { Composer } from "./ui/composer";
 import { Onboarding } from "./ui/onboarding";
 import { SignInGate } from "./ui/signin-gate";
 import { CenterCards } from "./ui/infocard";
-import { RightRail } from "./ui/controls";
+import { RightRail, TableViewActions } from "./ui/controls";
 import { ErrorToast, ExplanationCard, Metrics, NarratorCaption, QuestionCard, SimuFace } from "./ui/lesson";
 
 const noop = () => () => {};
@@ -114,6 +114,7 @@ export default function SimuApp() {
       {/* Speech bubbles from the 3D scene render here, above the lesson cards. */}
       <div id="bubble-layer" className="pointer-events-none fixed inset-0 z-[35]" />
       <TopBar />
+      <TableViewActions />
       <BuildAndDiscover />
       <Metrics />
       {/* One shared card per side: each morphs between the panels it hosts. */}

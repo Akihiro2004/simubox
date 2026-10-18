@@ -550,6 +550,66 @@ input[type="range"].slider::-moz-range-thumb {
    Parts the entrance choreographs start hidden so the server-rendered page
    doesn't flash before anime.js takes over. The fallback shows them anyway
    if scripts never run, and reduced motion shows them at once. */
+.landing-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: #eef1f5;
+  opacity: 1;
+  transition: opacity 680ms cubic-bezier(.22, 1, .36, 1) 120ms;
+}
+.landing-intro[data-phase="leaving"] {
+  opacity: 0;
+  pointer-events: none;
+}
+.landing-intro-brand {
+  display: grid;
+  justify-items: center;
+  gap: 20px;
+  transition: opacity 320ms ease, transform 460ms cubic-bezier(.22, 1, .36, 1), filter 460ms ease;
+}
+.landing-intro[data-phase="leaving"] .landing-intro-brand {
+  opacity: 0;
+  transform: translateY(-16px) scale(1.04);
+  filter: blur(5px);
+}
+.landing-intro-logo {
+  display: block;
+  width: clamp(172px, 26vw, 224px);
+  height: auto;
+}
+.landing-intro-dots { display: flex; gap: 7px; height: 8px; }
+.landing-intro-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #3b918f;
+  opacity: .3;
+}
+.landing-intro-dots i:nth-child(2) { animation-delay: 140ms; }
+.landing-intro-dots i:nth-child(3) { animation-delay: 280ms; background: #d9ad4a; }
+.landing-intro[data-animated="true"] .landing-intro-logo { animation: intro-float 2.4s ease-in-out infinite; }
+.landing-intro[data-animated="true"] .landing-intro-dots i { animation-name: intro-dot; animation-duration: 1.2s; animation-iteration-count: infinite; }
+.landing-intro-continue {
+  position: absolute;
+  bottom: max(32px, env(safe-area-inset-bottom));
+  padding: 12px 20px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+@keyframes intro-float { 50% { transform: translateY(-5px) rotate(-1deg); } }
+@keyframes intro-dot { 40% { opacity: .85; transform: translateY(-3px); } 80%, 100% { opacity: .3; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .landing-intro, .landing-intro-brand { transition: none; }
+  .landing-intro-logo, .landing-intro-dots i { animation: none !important; }
+  .landing-intro[data-phase="leaving"] .landing-intro-brand { transform: none; filter: none; }
+}
+.landing-intro[data-animated="false"], .landing-intro[data-animated="false"] .landing-intro-brand { transition: none; }
+/* The intro owns the reveal; the old timed fallback must not race it. */
+[data-landing-ready] [data-enter] { animation: none; }
+[data-landing-ready="false"] [data-enter] { opacity: 1; }
 [data-enter] {
   opacity: 0;
   animation: landing-fallback 0s linear 1.4s forwards;

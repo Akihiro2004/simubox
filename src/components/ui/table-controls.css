@@ -1,0 +1,7 @@
+.table-view-actions { top: max(72px, env(safe-area-inset-top)); }
+.table-lesson-caption { position: fixed; z-index: 35; bottom: calc(154px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); width: min(520px, calc(100vw - 32px)); padding: 14px 18px; border-radius: 18px; font-size: 14px; line-height: 1.5; pointer-events: none; }
+.table-lesson-caption button { pointer-events: auto; }
+@media (min-width: 640px) {
+  .table-view-actions { top: max(18px, env(safe-area-inset-top)); }
+  .table-lesson-caption { bottom: 100px; }
+}

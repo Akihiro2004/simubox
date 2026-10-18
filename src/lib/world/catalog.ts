@@ -8,7 +8,7 @@ import { PROJECTILE_LIMITS } from "../engine/projectile";
 
 export type Vec3 = [number, number, number];
 
-export const WORLD_IDS = ["bedroom", "court", "lab", "park", "stage", "space", "ocean", "math", "globe", "workshop", "optics"] as const;
+export const WORLD_IDS = ["bedroom", "court", "lab", "park", "stage", "space", "ocean", "math", "globe", "workshop", "optics", "mechanics", "math_studio"] as const;
 export type WorldId = (typeof WORLD_IDS)[number];
 
 export interface WorldDef {
@@ -23,6 +23,18 @@ export interface WorldDef {
 }
 
 export const WORLDS: Record<WorldId, WorldDef> = {
+  mechanics: {
+    id: "mechanics", name: "Mechanics Lab",
+    description: "An instrumented dynamics track: forces, Newton's laws, acceleration, friction, momentum, collisions, impulse, ramps, springs, energy and small-angle pendulums. Analytic SI-unit experiments with adjustable parameters.",
+    bounds: { min: [-6, 0, -5], max: [6, 6, 5] },
+    camera: { position: [13, 11, 15.5], target: [0, 1.1, 0] }, guideSpot: [4.7, 0, 3.3],
+  },
+  math_studio: {
+    id: "math_studio", name: "Math Studio",
+    description: "A hands-on mathematics studio: number lines, arithmetic, fractions, ratios, percentages, equations, inequalities, quadratics, systems, functions, geometry, trigonometry, statistics, probability, sequences and coordinate transformations. Use show_math for an engine-computed worked example; existing plotting and shape tools also work here.",
+    bounds: { min: [-6, 0, -5], max: [6, 6, 5] },
+    camera: { position: [15.5, 12, 12.5], target: [0, 1.1, 0] }, guideSpot: [4.7, 0, 3.3],
+  },
   bedroom: {
     id: "bedroom",
     name: "Cozy Bedroom",
