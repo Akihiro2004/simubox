@@ -30,6 +30,13 @@ const MODULE_WORLD: Partial<Record<Command["op"], WorldId>> = {
   plot_point: "math",
   plot_vector: "math",
   build_circuit: "workshop",
+  show_circuit: "workshop",
+  show_magnets: "workshop",
+  place_magnet: "workshop",
+  remove_magnet: "workshop",
+  place_part: "workshop",
+  remove_part: "workshop",
+  set_part: "workshop",
   build_lever: "workshop",
   show_wave: "workshop",
   show_ripple_tank: "workshop",
@@ -43,7 +50,7 @@ const MODULE_WORLD: Partial<Record<Command["op"], WorldId>> = {
 };
 
 /** Home world of each module that set_module can change. */
-const MODULE_HOME: Record<ModuleName, WorldId> = { mechanics: "mechanics", maths: "math_studio", orbits: "space", fluid: "ocean", circuit: "workshop", wave: "workshop", lever: "workshop", particles: "lab", cell: "lab", globe: "globe", ripple: "workshop", signal: "stage", optics: "optics" };
+const MODULE_HOME: Record<ModuleName, WorldId> = { mechanics: "mechanics", maths: "math_studio", orbits: "space", fluid: "ocean", circuit: "workshop", wave: "workshop", lever: "workshop", particles: "lab", cell: "lab", reaction: "lab", population: "lab", genetics: "lab", osmosis: "lab", globe: "globe", ripple: "workshop", signal: "stage", optics: "optics", magnet: "workshop" };
 
 /** Gravity a command sets (m/s², positive), if any. */
 function gravityOf(c: Command): number | undefined {
@@ -278,6 +285,7 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
         case "spawn_primitive":
         case "build_molecule":
         case "build_atom":
+          if (c.op === "build_molecule" && !c.molecule === !c.compound) return drop("build_molecule needs exactly one of molecule or compound");
           if (objects.has(c.id) || characters.has(c.id)) return drop(`id "${c.id}" already exists`);
           if (objects.size >= LIMITS.maxObjects) return drop("object limit reached");
           objects.add(c.id);
@@ -358,7 +366,7 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
 const SUBJECTS = ["physics", "chemistry", "biology", "math", "earth_space", "general_science", "other"];
 const SCOPES = ["in_scope", "too_advanced", "off_topic", "unsafe", "needs_clarification"];
 const SUPPORT = ["simulated", "visual", "text"];
-const CAPS = ["gravity", "projectile", "molecule", "atom", "orbits", "buoyancy", "graph", "geometry", "circuit", "waves", "lever", "matter", "cell", "globe", "concept", "none", "light", "signal", "mechanics", "maths"];
+const CAPS = ["gravity", "projectile", "molecule", "atom", "orbits", "buoyancy", "graph", "geometry", "circuit", "waves", "lever", "matter", "cell", "globe", "concept", "none", "light", "signal", "mechanics", "maths", "reaction", "population", "genetics", "osmosis", "magnetism"];
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
 const clip = (v: unknown, max: number) => (typeof v === "string" ? (v.length > max ? `${v.slice(0, max - 1).replace(/\s+\S*$/, "")}…` : v) : v);

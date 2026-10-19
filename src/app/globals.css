@@ -182,6 +182,59 @@ textarea:focus-visible {
   border-top: 0.5px solid var(--hairline);
 }
 
+/* ---------- Picker (glass dropdown) ---------- */
+/* The closed field matches grouped rows; the open list is a glass sheet whose
+   picked row sits on the same white thumb as the segmented control. */
+.picker-trigger {
+  background: rgba(255, 255, 255, 0.75);
+  box-shadow: 0 0 0 0.5px var(--hairline);
+  color: var(--ink);
+  transition:
+    background-color 0.2s,
+    box-shadow 0.3s var(--ease),
+    transform 0.35s var(--spring);
+}
+.picker-trigger:active {
+  transform: scale(0.98);
+}
+.picker-trigger[aria-expanded="true"] {
+  background: #fff;
+  box-shadow:
+    0 0 0 0.5px var(--hairline),
+    0 4px 12px -6px rgba(31, 41, 55, 0.18);
+}
+@media (hover: hover) {
+  .picker-trigger:hover {
+    background: #fff;
+  }
+}
+.picker-list {
+  scrollbar-width: thin;
+  scrollbar-color: var(--fill-2) transparent;
+}
+.picker-option {
+  color: var(--ink-2);
+  font-weight: 600;
+  transition: background-color 0.15s, color 0.15s;
+}
+.picker-option[data-active="true"] {
+  background: var(--fill);
+  color: var(--ink);
+}
+.picker-option[aria-selected="true"] {
+  background: #fff;
+  color: var(--ink);
+  font-weight: 700;
+  box-shadow:
+    0 3px 8px rgba(0, 0, 0, 0.08),
+    0 0 0 0.5px rgba(0, 0, 0, 0.06);
+}
+.picker-option[aria-selected="true"][data-active="true"] {
+  box-shadow:
+    0 3px 8px rgba(0, 0, 0, 0.1),
+    0 0 0 1.5px var(--fill-2);
+}
+
 /* ---------- Slider ---------- */
 input[type="range"].slider {
   -webkit-appearance: none;
@@ -290,7 +343,10 @@ input[type="range"].slider::-moz-range-thumb {
   /* in-world labels sit in shrink-to-fit containers: size to the text */
   width: max-content;
   white-space: nowrap;
-  border-radius: 999px;
+  /* A pill for one-line labels (they are under 36px tall), rounded corners for
+     multi-line cards. 999px would turn tall cards into clipped stadiums, and this
+     unlayered rule beats Tailwind's rounded-* utilities. */
+  border-radius: 18px;
   background: rgba(255, 255, 255, 0.92);
   color: var(--ink);
   font-size: 13px;
@@ -298,6 +354,10 @@ input[type="range"].slider::-moz-range-thumb {
   box-shadow:
     0 6px 16px -6px rgba(31, 41, 55, 0.35),
     0 0 0 0.5px rgba(0, 0, 0, 0.06);
+}
+/* Cards stack lines in a column: let them wrap inside their max width instead of spilling out. */
+.tag.flex-col {
+  white-space: normal;
 }
 .tag-dot::before {
   content: "";

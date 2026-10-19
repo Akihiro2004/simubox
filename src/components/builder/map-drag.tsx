@@ -10,10 +10,15 @@ import { livePosition } from "@/lib/world/runtime";
 import type { SceneObject } from "@/lib/world/scene";
 import { controlsRef } from "../world/camera";
 
-const grab = { id: "", x: 0, y: 0, moved: false, last: 0, plane: new Plane(), offset: new Vector3() };
+const grab = { id: "", x: 0, y: 0, moved: false, last: 0, play: false, plane: new Plane(), offset: new Vector3() };
+
+/** Items the student placed from Build & Discover can be slid around in play mode too (physics items are thrown instead). */
+export const playMovable = (o: SceneObject) => !!o.learnerPlaced && o.physics !== "dynamic";
 
 export function beginMapGrab(e: ThreeEvent<PointerEvent>, o: SceneObject): boolean {
-  if (!useBuilder.getState().editing) return false;
+  const play = !useBuilder.getState().editing;
+  if (play && !playMovable(o)) return false;
+  grab.play = play;
   const at = new Vector3(...(livePosition(o.id) ?? o.position));
   grab.plane.setFromNormalAndCoplanarPoint(new Vector3(0, 1, 0), at);
   const hit = e.ray.intersectPlane(grab.plane, new Vector3());
@@ -43,7 +48,7 @@ export function MapDragController() {
     };
     const move = (e: PointerEvent) => {
       if (!grab.id) return;
-      if (!useBuilder.getState().editing || !useSim.getState().objects[grab.id]) return end();
+      if (!(useBuilder.getState().editing || grab.play) || !useSim.getState().objects[grab.id]) return end();
       if (!grab.moved && Math.hypot(e.clientX - grab.x, e.clientY - grab.y) < 4) return;
       if (performance.now() - grab.last < 32) return;
       const rect = gl.domElement.getBoundingClientRect();

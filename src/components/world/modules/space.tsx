@@ -5,7 +5,7 @@ import { Html } from "@/components/world/html";
 import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
 import { MathUtils, Vector3, type Group, type Mesh } from "three";
-import { useSim } from "@/lib/store";
+import { noteFocus, useSim } from "@/lib/store";
 import { orbitClock, type Modules } from "@/lib/modules";
 import { PLANETS, orbitOf, displayDistance, displayRadius, moonIllumination, moonPhaseName, orbitAngle, seasonNorth, subsolarLatitude, MOON, type PlanetId } from "@/lib/engine/astro";
 import { getEarthTexture, useSunLitMaterial } from "./earth";
@@ -90,7 +90,7 @@ function SolarSystem({ o, paused }: { o: NonNullable<Modules["orbits"]>; paused:
             <group ref={(g) => void (rings.current[id] = g)} position={[0, Y, 0]} scale={0.001}>
               <Line points={unit} color={focused ? "#ffc531" : "#9fb3d9"} lineWidth={focused ? 2 : 1} transparent opacity={focused ? 1 : 0.45} />
             </group>
-            <group ref={(g) => void (groups.current[id] = g)} onClick={(e) => (e.stopPropagation(), select({ selectedId: null }))}>
+            <group ref={(g) => void (groups.current[id] = g)} onClick={(e) => { e.stopPropagation(); select({ selectedId: null }); noteFocus({ kind: "planet", label: p.name, detail: `orbits ${orbitOf(id, o.distances).distanceAU.toFixed(2)} AU from the Sun, radius ${p.radiusKm.toLocaleString("en-US")} km, surface gravity ${p.gravity} m/s²` }); }}>
               <PlanetBody id={id} radius={displayRadius(p.radiusKm)} sun={SUN} tiltDeg={p.tiltDeg} />
               {o.labels && (
                 <Html position={[0, displayRadius(p.radiusKm) + 0.35, 0]} center zIndexRange={[15, 0]} style={{ pointerEvents: "none" }}>

@@ -15,7 +15,8 @@ import { isLearningAsset } from "@/lib/world/learning-assets";
 import { LearningModel } from "./learning-assets";
 
 export function Mat({ c, r = 0.65, m = 0, e, ei = 0.8, o = 1, flat }: { c: string; r?: number; m?: number; e?: string; ei?: number; o?: number; flat?: boolean }) {
-  return <meshStandardMaterial color={c} roughness={r} metalness={m} emissive={e ?? "#000000"} emissiveIntensity={e ? ei : 0} transparent={o < 1} opacity={o} flatShading={flat} depthWrite={o >= 1} />;
+  // Remount when transparency flips: three.js only compiles `transparent` once per material.
+  return <meshStandardMaterial key={o < 1 ? "t" : "o"} color={c} roughness={r} metalness={m} emissive={e ?? "#000000"} emissiveIntensity={e ? ei : 0} transparent={o < 1} opacity={o} flatShading={flat} depthWrite={o >= 1} />;
 }
 
 const S = { castShadow: true, receiveShadow: true } as const;

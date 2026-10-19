@@ -7,194 +7,14 @@ import { useMemo, useRef } from "react";
 import { MathUtils, Object3D, type Group, type InstancedMesh } from "three";
 import { useSim } from "@/lib/store";
 import { solveLever, waveDisplacement, waveSpeed } from "@/lib/engine/physics2";
-import { circuitResult, type Modules } from "@/lib/modules";
+import { circuitBoard, type Modules } from "@/lib/modules";
+import { CircuitBoard3D } from "./circuit";
+import { MagnetLab3D } from "./magnet";
 import { Mat } from "../assets";
 import { RippleTank } from "./ripple";
 
 const fmt = (v: number, d = 2) => (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(d));
 const Tag = ({ children, tone }: { children: React.ReactNode; tone?: "fact" | "warning" }) => <div className={`tag flex items-center gap-1.5 px-2.5 py-0.5 text-[12px] ${tone ? `tag-dot tag-${tone}` : ""}`}>{children}</div>;
-
-// ---------- circuit ----------
-
-type V2 = [number, number];
-/** Point at distance d along a closed/open polyline in the board plane. */
-function along(path: V2[], lengths: number[], total: number, d: number): V2 {
-  let t = ((d % total) + total) % total;
-  for (let i = 0; i < lengths.length; i++) {
-    if (t <= lengths[i]) {
-      const [a, b] = [path[i], path[i + 1]];
-      const k = t / (lengths[i] || 1);
-      return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
-    }
-    t -= lengths[i];
-  }
-  return path[path.length - 1];
-}
-function prep(path: V2[]) {
-  const lengths = path.slice(1).map((p, i) => Math.hypot(p[0] - path[i][0], p[1] - path[i][1]));
-  return { path, lengths, total: lengths.reduce((a, b) => a + b, 0) };
-}
-
-const BOARD: [number, number, number] = [-1.2, 0.08, 1.1];
-const BOARD_SCALE = 1.6;
-const W = 1.0, H = 0.6; // half-extents of the wire loop on the board
-
-function Bulb({ at, brightness, broken, label, onToggle }: { at: V2; brightness: number; broken: boolean; label?: string; onToggle: () => void }) {
-  return (
-    <group
-      position={[at[0], 0, at[1]]}
-      onClick={(e) => {
-        e.stopPropagation();
-        onToggle();
-      }}
-      onPointerOver={() => (document.body.style.cursor = "pointer")}
-      onPointerOut={() => (document.body.style.cursor = "")}
-    >
-      <mesh position={[0, 0.05, 0]} castShadow>
-        <cylinderGeometry args={[0.06, 0.07, 0.1, 16]} />
-        <Mat c="#9ca3af" m={0.6} r={0.3} />
-      </mesh>
-      <mesh position={[0, 0.17, 0]}>
-        <sphereGeometry args={[0.1, 20, 16]} />
-        {broken ? (
-          <meshStandardMaterial color="#5f6670" roughness={0.3} transparent opacity={0.55} />
-        ) : (
-          <meshStandardMaterial color="#fff7d6" emissive="#ffc531" emissiveIntensity={0.1 + brightness * 2.4} transparent opacity={0.92} />
-        )}
-      </mesh>
-      {brightness > 0.02 && <pointLight position={[0, 0.25, 0]} color="#ffcf6b" intensity={brightness * 1.6} distance={1.6} decay={2} />}
-      {(label || broken) && (
-        <Html position={[0, 0.42, 0]} center zIndexRange={[15, 0]} style={{ pointerEvents: "none" }}>
-          <Tag tone={broken ? "warning" : undefined}>{broken ? "Broken bulb" : label}</Tag>
-        </Html>
-      )}
-    </group>
-  );
-}
-
-function Circuit({ c, animate }: { c: NonNullable<Modules["circuit"]>; animate: boolean }) {
-  const set = useSim((s) => s.set);
-  const r = circuitResult(c);
-  const series = c.layout === "series";
-  // Bulb spots: series along the top and right edges; parallel as rungs.
-  // Series: bulbs sit on the loop. Parallel: each bulb is its own rung between the rails.
-  const bulbs: V2[] = series
-    ? ([[-0.5, -H], [0.5, -H], [W, -0.15], [W, 0.35]] as V2[]).slice(0, c.bulbs)
-    : Array.from({ length: c.bulbs }, (_, i) => [W - (c.bulbs - 1 - i) * 0.25, 0] as V2);
-  const xmax = series ? W : bulbs[bulbs.length - 1][0];
-  const loops = useMemo(() => {
-    if (series) return [prep([[-W, 0], [-W, -H], [W, -H], [W, H], [-W, H], [-W, 0]])];
-    return bulbs.map(([x]) => prep([[-W, 0], [-W, -H], [x, -H], [x, H], [-W, H], [-W, 0]]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- depends on layout and count only
-  }, [series, c.bulbs]);
-  const dots = useRef<InstancedMesh>(null);
-  const tmp = useMemo(() => new Object3D(), []);
-  const offset = useRef(0);
-  const PER = 14;
-  useFrame((_, dt) => {
-    const m = dots.current;
-    if (!m) return;
-    // Electron drift speed shown proportional to current (not to scale: real drift is mm/s).
-    if (animate) offset.current += dt * 0.6 * Math.min(r.current, 3);
-    let n = 0;
-    loops.forEach((loop, li) => {
-      const speedScale = series ? 1 : r.branches[li]?.current / Math.max(r.current, 1e-9) * loops.length;
-      for (let i = 0; i < PER; i++) {
-        const [x, z] = along(loop.path, loop.lengths, loop.total, (i / PER) * loop.total + offset.current * speedScale);
-        tmp.position.set(x, 0.035, z);
-        tmp.scale.setScalar(c.closed ? 1 : 0.001);
-        tmp.updateMatrix();
-        m.setMatrixAt(n++, tmp.matrix);
-      }
-    });
-    m.count = n;
-    m.instanceMatrix.needsUpdate = true;
-  });
-  const wire = (pts: V2[]) => <Line points={pts.map(([x, z]) => [x, 0.03, z] as [number, number, number])} color="#1c1e22" lineWidth={3.5} />;
-  return (
-    <group position={BOARD} scale={BOARD_SCALE}>
-      <RoundedBox args={[2.4, 0.06, 1.6]} radius={0.02} position={[0, -0.03, 0]} receiveShadow>
-        <Mat c="#f6f1e7" r={0.9} />
-      </RoundedBox>
-      {/* Battery (+) to the top rail, around, back through the switch to (-). */}
-      {wire(series ? [[-W, -0.18], [-W, -H], [W, -H], [W, H], [0.15, H]] : [[-W, -0.18], [-W, -H], [xmax, -H]])}
-      {!series && wire([[0.15, H], [xmax, H]])}
-      {!series && bulbs.map(([x], i) => <group key={i}>{wire([[x, -H], [x, -0.12]])}{wire([[x, 0.12], [x, H]])}</group>)}
-      {wire([[-0.55, H], [-W, H], [-W, 0.18]])}
-      {/* Battery on the left edge. */}
-      <group position={[-W, 0.09, 0]} rotation={[Math.PI / 2, 0, 0]}>
-        <mesh castShadow>
-          <cylinderGeometry args={[0.09, 0.09, 0.36, 20]} />
-          <Mat c="#1c1e22" />
-        </mesh>
-        <mesh position={[0, -0.14, 0]}>
-          <cylinderGeometry args={[0.092, 0.092, 0.1, 20]} />
-          <Mat c="#ffc531" />
-        </mesh>
-      </group>
-      <Html position={[-W - 0.05, 0.35, 0]} center zIndexRange={[15, 0]} style={{ pointerEvents: "none" }}>
-        <Tag tone="fact">
-          {fmt(c.voltage, 1)} V battery · {fmt(r.current)} A
-        </Tag>
-      </Html>
-      {/* Switch: click to open or close. */}
-      <group
-        position={[-0.2, 0.03, H]}
-        onClick={(e) => {
-          e.stopPropagation();
-          const cur = useSim.getState().modules;
-          if (cur.circuit) set({ modules: { ...cur, circuit: { ...cur.circuit, closed: !cur.circuit.closed } } });
-        }}
-        onPointerOver={() => (document.body.style.cursor = "pointer")}
-        onPointerOut={() => (document.body.style.cursor = "")}
-      >
-        <mesh position={[0.35, 0, 0]}>
-          <cylinderGeometry args={[0.03, 0.03, 0.02, 12]} />
-          <Mat c="#5f6670" />
-        </mesh>
-        <mesh position={[-0.35, 0, 0]}>
-          <cylinderGeometry args={[0.03, 0.03, 0.02, 12]} />
-          <Mat c="#5f6670" />
-        </mesh>
-        <group position={[-0.35, 0.02, 0]} rotation={[0, 0, c.closed ? 0 : 0.6]}>
-          <mesh position={[0.35, 0, 0]} castShadow>
-            <boxGeometry args={[0.7, 0.03, 0.05]} />
-            <Mat c={c.closed ? "#30a46c" : "#e5484d"} />
-          </mesh>
-        </group>
-        <Html position={[0, 0.3, 0]} center zIndexRange={[15, 0]} style={{ pointerEvents: "none" }}>
-          <Tag tone={c.closed ? undefined : "warning"}>Switch {c.closed ? "closed" : "open"}</Tag>
-        </Html>
-      </group>
-      {/* Working bulbs share a resistance, so one label speaks for all of them. Click a bulb to break or fix it. */}
-      {bulbs.map((b, i) => {
-        const broken = c.broken.includes(i);
-        const lastWorking = bulbs.findLastIndex((_, j) => !c.broken.includes(j));
-        const br = r.branches[i];
-        return (
-          <Bulb
-            key={i}
-            at={b}
-            broken={broken}
-            brightness={br?.brightness ?? 0}
-            label={i === lastWorking ? `${bulbs.length - c.broken.length > 1 ? "Each bulb: " : ""}${fmt(br?.current ?? 0)} A · ${fmt(br?.voltage ?? 0, 1)} V` : undefined}
-            onToggle={() => {
-              const cur = useSim.getState().modules;
-              if (cur.circuit) set({ modules: { ...cur, circuit: { ...cur.circuit, broken: broken ? cur.circuit.broken.filter((j) => j !== i) : [...cur.circuit.broken, i] } } });
-            }}
-          />
-        );
-      })}
-      <instancedMesh ref={dots} args={[undefined, undefined, PER * 4]} frustumCulled={false}>
-        <sphereGeometry args={[0.022, 8, 6]} />
-        <meshBasicMaterial color="#2f80ed" />
-      </instancedMesh>
-      <Html position={[0, 0.02, 1.05]} center zIndexRange={[5, 0]} style={{ pointerEvents: "none" }}>
-        <div className="ground-label whitespace-nowrap !text-ink-2 ![text-shadow:none]">{series ? "Series circuit: one path" : "Parallel circuit: separate paths"}</div>
-      </Html>
-    </group>
-  );
-}
 
 // ---------- waves ----------
 
@@ -308,10 +128,11 @@ function Lever({ l, animate }: { l: NonNullable<Modules["lever"]>; animate: bool
 }
 
 export function WorkshopModules({ animate }: { animate: boolean }) {
-  const { circuit, wave, lever, ripple } = useSim((s) => s.modules);
+  const { circuit, wave, lever, ripple, magnet } = useSim((s) => s.modules);
   return (
     <>
-      {circuit && <Circuit c={circuit} animate={animate} />}
+      {!magnet && circuitBoard(circuit) && <CircuitBoard3D board={circuitBoard(circuit)!} animate={animate} />}
+      {magnet && <MagnetLab3D lab={magnet} animate={animate} />}
       {wave && <Wave w={wave} animate={animate} />}
       {lever && <Lever l={lever} animate={animate} />}
       {ripple && <RippleTank r={ripple} animate={animate} />}

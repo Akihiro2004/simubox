@@ -155,8 +155,3 @@ export function rmsSpeed(substance: SubstanceId, tempC: number): number {
   if (T <= 0) return 0;
   return Math.sqrt((3 * 8.314 * T) / SUBSTANCES[substance].molarMass);
 }
-
-/** Relative jiggle of particles for the animation (1 at room temperature). */
-export function agitation(tempC: number): number {
-  return Math.sqrt(Math.max(tempC + 273.15, 1) / 293.15);
-}

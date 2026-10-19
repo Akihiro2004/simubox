@@ -6,10 +6,10 @@ export interface TeachingChoice { capability: CapabilityId; world: WorldId | nul
 const waterWords = /ocean|sea\b|water|ripple|tsunami|wind|gelombang air|ombak|laut|angin|riak/i;
 const operations: Partial<Record<CapabilityId, Command["op"][]>> = {
   mechanics: ["show_mechanics"], maths: ["show_math", "plot_function", "plot_point", "plot_vector", "spawn_shape"],
-  circuit: ["build_circuit"], lever: ["build_lever"], light: ["show_optics", "place_optic"],
-  orbits: ["show_orbits"], buoyancy: ["set_fluid", "spawn_asset", "spawn_shape"], cell: ["show_cell"], matter: ["show_particles"],
+  circuit: ["build_circuit", "show_circuit", "place_part", "set_part"], magnetism: ["show_magnets", "place_magnet"], lever: ["build_lever"], light: ["show_optics", "place_optic"],
+  orbits: ["show_orbits"], buoyancy: ["set_fluid", "spawn_asset", "spawn_shape"], cell: ["show_cell"], matter: ["show_particles"], reaction: ["show_reaction"], population: ["show_population"], genetics: ["show_genetics"], osmosis: ["show_osmosis"],
 };
-const moduleFor: Partial<Record<CapabilityId, string>> = { mechanics: "mechanics", maths: "maths", waves: "ripple", circuit: "circuit", lever: "lever", light: "optics", orbits: "orbits", buoyancy: "fluid", cell: "cell", matter: "particles" };
+const moduleFor: Partial<Record<CapabilityId, string>> = { mechanics: "mechanics", maths: "maths", waves: "ripple", circuit: "circuit", lever: "lever", light: "optics", orbits: "orbits", buoyancy: "fluid", cell: "cell", matter: "particles", reaction: "reaction", population: "population", genetics: "genetics", osmosis: "osmosis" };
 
 export function isParameterFollowUp(prompt: string, capability?: string): boolean {
   if (!/^(?:please\s+)?(?:now\s+)?(?:change|set|increase|decrease|double|halve|make|turn|ubah|naikkan|turunkan)\b/i.test(prompt)) return false;
@@ -24,6 +24,19 @@ export function isParameterFollowUp(prompt: string, capability?: string): boolea
     orbits: /distance|speed|orbit|planet|year/i,
   };
   return !!capability && !!parameters[capability]?.test(prompt);
+}
+
+const POINTING = /\b(this|that|these|those|it|its|here|there|ini|itu|tersebut|sini|situ)\b/i;
+
+/**
+ * A short, vague question asked right after the student clicked something
+ * ("what is this for?") is about that thing, so routing treats it as if it
+ * named it. The student's own words still go to the model unchanged.
+ */
+export function routedPrompt(req: Pick<PlanRequest, "prompt" | "scene">): string {
+  const f = req.scene.focus;
+  if (!f || f.secondsAgo > 300 || req.prompt.trim().split(/\s+/).length > 16 || !POINTING.test(req.prompt)) return req.prompt;
+  return `${req.prompt} (about: ${f.label})`;
 }
 
 export function chooseTeaching(req: Pick<PlanRequest, "prompt" | "scene" | "history">): TeachingChoice {

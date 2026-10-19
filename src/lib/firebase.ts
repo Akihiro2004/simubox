@@ -72,11 +72,15 @@ export async function signOutUser() {
   await a.signOut(auth);
 }
 
-/** Fresh Firebase ID token for API calls, or null for guests. */
+/**
+ * Fresh Firebase ID token for API calls, or null for guests. A token refresh
+ * needs Google's servers; on a bad connection it gives up after 2.5 s so the
+ * question still goes out (the server then treats it like a guest's).
+ */
 export async function idToken(): Promise<string | null> {
   if (!current) return null;
   try {
-    return await current.getIdToken();
+    return await Promise.race([current.getIdToken(), new Promise<null>((r) => setTimeout(() => r(null), 2500))]);
   } catch {
     return null;
   }

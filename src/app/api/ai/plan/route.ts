@@ -2,13 +2,14 @@ import { direct, type DirectorEvent, type DirectorResult } from "@/lib/ai/direct
 import { PlanRequest } from "@/lib/ssp/schema";
 import { clientIp, rateLimit, verifyUser } from "@/lib/server/guard";
 
-function logResult(uid: string | null, result: DirectorResult) {
+function logResult(uid: string | null, result: DirectorResult, verifyMs: number) {
   console.log(
     JSON.stringify({
       event: "plan",
       user: uid ? "signed_in" : "guest",
       ok: result.ok,
-      ...(result.ok ? { model: result.model, mode: result.mode, ms: result.ms, repaired: result.repaired, dropped: result.issues.length, scope: result.plan.scope, capability: result.plan.capability } : { code: result.code }),
+      verifyMs,
+      ...(result.ok ? { model: result.model, mode: result.mode, ms: result.ms, firstStepMs: result.firstStepMs, repaired: result.repaired, dropped: result.issues.length, scope: result.plan.scope, capability: result.plan.capability } : { code: result.code }),
     }),
   );
 }
@@ -26,7 +27,9 @@ export async function POST(req: Request) {
   const parsed = PlanRequest.safeParse(body);
   if (!parsed.success) return Response.json({ error: "Invalid request.", issues: parsed.error.issues.slice(0, 5) }, { status: 400 });
 
+  const verifyStart = Date.now();
   const uid = await verifyUser(req);
+  const verifyMs = Date.now() - verifyStart;
   const key = uid ? `u:${uid}` : `ip:${clientIp(req)}`;
   // Guests: ~6/min, burst 10. Signed-in: ~15/min, burst 25.
   if (!(uid ? rateLimit(key, 15, 25) : rateLimit(key, 6, 10))) {
@@ -47,7 +50,7 @@ export async function POST(req: Request) {
           req.signal,
         );
         if (req.signal.aborted) return;
-        logResult(uid, result);
+        logResult(uid, result, verifyMs);
         send(result.ok ? { type: "result", plan: result.plan, issues: result.issues, model: result.model } : { type: "error", error: result.error, code: result.code, status: result.status });
         controller.close();
       },
@@ -56,7 +59,7 @@ export async function POST(req: Request) {
   }
 
   const result = await direct(parsed.data, undefined, req.signal);
-  logResult(uid, result);
+  logResult(uid, result, verifyMs);
   if (!result.ok) return Response.json({ error: result.error, code: result.code }, { status: result.status });
   return Response.json({ plan: result.plan, issues: result.issues, model: result.model });
 }

@@ -1,23 +1,26 @@
 "use client";
 import { MechanicsControls, SchoolMathControls } from "./learning-controls";
 
-import { Camera, Focus, Hand, House, MessageCircle, PartyPopper, Pause, Play, RotateCcw, Rocket, SlidersHorizontal, Trash, X } from "lucide-react";
+import { Camera, Focus, Hand, House, LoaderCircle, MessageCircle, PartyPopper, Pause, Play, RotateCcw, Rocket, SlidersHorizontal, Trash, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { useSim, projectileResult } from "@/lib/store";
-import { cancelPlayback, execNow, runPlan, skipSpeech } from "@/lib/player";
+import { noteElement, noteFocus, pickCellPart, useSim, projectileResult } from "@/lib/store";
+import { cancelPlayback, execNow, runPlan, skipSpeech, useCompoundJob } from "@/lib/player";
 import { GRAVITY_PRESETS, fmt } from "@/lib/engine/projectile";
 import { applyEnvironment, environmentForGravity, isGiantPlanet } from "@/lib/environment";
-import { ELEMENTS, MOLECULES, MOLECULE_IDS, type MoleculeId } from "@/lib/engine/chemistry";
+import { ELEMENTS, MOLECULES, MOLECULE_IDS, getMolecule, molarMass, type MoleculeId } from "@/lib/engine/chemistry";
 import { ASSETS, GUIDE_ID, LIMITS } from "@/lib/world/catalog";
-import { MODULE_DEFAULTS, OPTICS_TABLE, opticsTrace, patchOptics, patchSignal, signalReception, type Modules, type OpticsPatch, type RippleState, type SignalPatch, type SignalState } from "@/lib/modules";
+import { MODULE_DEFAULTS, OPTICS_TABLE, circuitBoard, opticsTrace, patchOptics, patchSignal, signalReception, type Modules, type OpticsPatch, type RippleState, type SignalPatch, type SignalState } from "@/lib/modules";
 import { SIGNAL_KINDS, SIGNAL_KIND_IDS, WALL_MATERIALS, formatFrequency, formatLength, formatSpeed, formatStrength, signalWavelength, waterWave, type SignalKind, type WallMaterial } from "@/lib/engine/waves";
 import { OPTIC_PRESETS, TABLE, criticalAngle, fresnelReflectance, objectRays, refractiveIndex, signedFocal, sourceWavelength, turningHits, type OpticElement, type OpticPreset } from "@/lib/engine/optics";
 import { isValidExpression } from "@/lib/engine/expr";
 import { measureShape } from "@/lib/engine/geometry";
 import { PLACES, distanceKm } from "@/lib/engine/geo";
-import { Segmented, SwapIcon } from "./kit";
-import { CELL_KINDS, CELL_PARTS, ORGANELLES } from "@/lib/engine/biology";
+import { Picker, Segmented, SwapIcon } from "./kit";
+import { CircuitControls } from "./circuit-controls";
+import { MagnetControls } from "./magnet-controls";
+import { GeneticsControls, OsmosisControls, PopulationControls, ReactionControls } from "./lab-sims-controls";
+import { CELL_GROUPS, CELL_NAMES, CELL_PARTS, CELL_SUMMARY, ORGANELLES, type CellKind } from "@/lib/engine/biology";
 import { MATERIALS, SUBSTANCES, SUBSTANCE_IDS, phaseAt, type MaterialId, type SubstanceId } from "@/lib/engine/physics2";
 import { objectName } from "@/lib/world/scene";
 import { getBody, livePosition, liveSpeed } from "@/lib/world/runtime";
@@ -27,7 +30,7 @@ import "./table-controls.css";
 
 // ---------- small building blocks ----------
 
-function Slider({ label, value, min, max, step, display, sub, onChange, onCommit }: { label: string; value: number; min: number; max: number; step: number; display: string; sub?: string; onChange: (v: number) => void; onCommit?: () => void }) {
+export function Slider({ label, value, min, max, step, display, sub, onChange, onCommit }: { label: string; value: number; min: number; max: number; step: number; display: string; sub?: string; onChange: (v: number) => void; onCommit?: () => void }) {
   return (
     <label className="block px-3.5 pb-1.5 pt-2.5">
       <span className="flex items-baseline justify-between gap-2">
@@ -56,11 +59,11 @@ function Slider({ label, value, min, max, step, display, sub, onChange, onCommit
 
 const Seg = Segmented;
 
-function Caption({ children }: { children: React.ReactNode }) {
+export function Caption({ children }: { children: React.ReactNode }) {
   return <p className="px-1 pb-1.5 pt-3 text-[13px] font-semibold text-ink-3">{children}</p>;
 }
 
-function Note({ children }: { children: React.ReactNode }) {
+export function Note({ children }: { children: React.ReactNode }) {
   return <p className="px-1 pt-2 text-[13px] leading-snug text-ink-3">{children}</p>;
 }
 
@@ -149,15 +152,30 @@ function ProjectileControls() {
 }
 
 let chemSeq = 0;
+const MOLECULE_PICKER = [{ options: MOLECULE_IDS.map((m) => ({ value: m, label: MOLECULES[m].name.replace(/ \(.*\)$/, ""), hint: MOLECULES[m].formula })) }];
+const CELL_PICKER = CELL_GROUPS.map((g) => ({ name: g.name, options: g.kinds.map((k) => ({ value: k, label: CELL_NAMES[k] })) }));
 
 function ChemControls() {
   const objects = useSim((s) => s.objects);
   const [compare, setCompare] = useState(false);
   const chem = Object.values(objects).filter((o) => o.type === "molecule" || o.type === "atom");
   const current = chem.length === 1 ? chem[0] : null;
-  const show = (cmd: { kind: "molecule"; id: MoleculeId } | { kind: "atom"; id: string }) => {
-    if (!compare || chem.length >= 2) for (const o of chem) useSim.getState().removeObject(o.id);
-    const id = `${cmd.kind}_${cmd.id.toLowerCase()}_${++chemSeq}`;
+  const [search, setSearch] = useState("");
+  const job = useCompoundJob((s) => s.job);
+  const loading = !!job && !job.error;
+  const show = (cmd: { kind: "molecule"; id: MoleculeId } | { kind: "compound"; id: string } | { kind: "atom"; id: string }) => {
+    const replaced = !compare || chem.length >= 2 ? chem : [];
+    const clear = () => replaced.forEach((o) => useSim.getState().removeObject(o.id));
+    const id = `${cmd.kind}_${++chemSeq}`;
+    if (cmd.kind === "compound") {
+      // Keep the current model until the new one has loaded, so a failed lookup never empties the bench.
+      const done = () => { stopObj(); stopJob(); };
+      const stopObj = useSim.subscribe((s) => { if (s.objects[id]) { done(); clear(); } });
+      const stopJob = useCompoundJob.subscribe((s) => { if (!s.job || s.job.error) setTimeout(() => { if (!useSim.getState().objects[id]) done(); }); });
+      execNow({ op: "build_molecule", id, compound: cmd.id, ...(replaced[0] ? { position: replaced[0].position } : {}) });
+      return;
+    }
+    clear();
     if (cmd.kind === "molecule") execNow({ op: "build_molecule", id, molecule: cmd.id });
     else execNow({ op: "build_atom", id, element: cmd.id });
   };
@@ -165,7 +183,14 @@ function ChemControls() {
     <>
       <button className="btn btn-soft mt-2 w-full" onClick={() => execNow({ op: "show_periodic_table" })}>Read periodic table</button>
       <Caption>Molecules</Caption>
-      <Seg label="Molecules" value={current?.type === "molecule" ? current.molecule : null} options={MOLECULE_IDS.map((m) => [m, MOLECULES[m].formula] as const)} onChange={(m) => show({ kind: "molecule", id: m })} cols={4} />
+      <Picker label="Molecule" placeholder="Choose a molecule" value={current?.type === "molecule" && MOLECULES[current.molecule] ? current.molecule : null} onChange={(id) => show({ kind: "molecule", id })} groups={MOLECULE_PICKER} />
+      <form className="mt-2 flex gap-2" onSubmit={(e) => { e.preventDefault(); if (search.trim() && !loading) show({ kind: "compound", id: search.trim() }); }}>
+        <input aria-label="Any compound" className="min-w-0 flex-1 rounded-xl bg-white/80 px-3 py-2.5 text-sm" placeholder="Any compound, e.g. nicotine" maxLength={80} value={search} onChange={(e) => setSearch(e.target.value)} />
+        <button className="btn btn-soft flex items-center gap-1.5 px-3" type="submit" disabled={loading} aria-busy={loading}>
+          {loading ? <><LoaderCircle size={15} className="animate-spin" /> Loading</> : "Show"}
+        </button>
+      </form>
+      {job?.error ? <p role="alert" className="mt-1.5 px-1 text-[13px] font-semibold text-red-700">{job.error}</p> : <Note>{loading ? `Fetching ${job!.name} from PubChem…` : "Other compounds load their real 3D shape from PubChem."}</Note>}
       <Caption>Atoms, simplified model</Caption>
       <Seg label="Atoms" value={current?.type === "atom" ? current.element : null} options={ELEMENTS.map((e) => [e.symbol, e.symbol] as const)} onChange={(el) => show({ kind: "atom", id: el })} cols={5} />
       <Toggle label="Compare two side by side" checked={compare} onChange={setCompare} />
@@ -173,7 +198,7 @@ function ChemControls() {
   );
 }
 
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+export function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <label className="group-rows mt-2 flex items-center justify-between px-3.5 py-2.5 text-[15px] font-bold">
       {label}
@@ -190,9 +215,20 @@ function Action({ onClick, children }: { onClick: () => void; children: React.Re
   );
 }
 
+/** A panel change; the fields that changed are remembered so the guide knows what the student just did. */
 const patchModules = (patch: Partial<Modules>) => {
   const s = useSim.getState();
+  const before = s.modules as unknown as Record<string, unknown>;
   s.set({ modules: { ...s.modules, ...patch } });
+  const changes = Object.entries(patch).map(([k, next]) => {
+    const prev = before[k];
+    if (next && prev && typeof next === "object" && typeof prev === "object") {
+      const diff = Object.entries(next as Record<string, unknown>).filter(([f, v]) => JSON.stringify(v) !== JSON.stringify((prev as Record<string, unknown>)[f]));
+      return `${k}: ${diff.map(([f, v]) => `${f} → ${JSON.stringify(v).slice(0, 40)}`).join(", ") || "updated"}`;
+    }
+    return `${k} → ${next === null ? "closed" : JSON.stringify(next).slice(0, 60)}`;
+  });
+  noteFocus({ kind: "control", label: `Changed ${changes.join("; ")}`.slice(0, 120) });
 };
 let seq = 0;
 const nextId = (prefix: string) => `${prefix}_${++seq}`;
@@ -330,10 +366,11 @@ function GlobeControls() {
 }
 
 function WorkshopControls() {
-  const { circuit, lever, wave, ripple } = useSim(useShallow((s) => ({ circuit: s.modules.circuit, lever: s.modules.lever, wave: s.modules.wave, ripple: s.modules.ripple ?? null })));
-  const active = ripple ? "ripple" : circuit ? "circuit" : lever ? "lever" : wave ? "wave" : null;
-  const pick = (k: "circuit" | "lever" | "wave" | "ripple") =>
+  const { circuit, lever, wave, ripple, magnet } = useSim(useShallow((s) => ({ circuit: s.modules.circuit, lever: s.modules.lever, wave: s.modules.wave, ripple: s.modules.ripple ?? null, magnet: s.modules.magnet ?? null })));
+  const active = magnet ? "magnet" : ripple ? "ripple" : circuit ? "circuit" : lever ? "lever" : wave ? "wave" : null;
+  const pick = (k: "circuit" | "lever" | "wave" | "ripple" | "magnet") =>
     patchModules({
+      magnet: k === "magnet" ? (magnet ?? MODULE_DEFAULTS.magnet) : null,
       circuit: k === "circuit" ? (circuit ?? MODULE_DEFAULTS.circuit) : null,
       lever: k === "lever" ? (lever ?? MODULE_DEFAULTS.lever) : null,
       wave: k === "wave" ? (wave ?? MODULE_DEFAULTS.wave) : null,
@@ -341,21 +378,11 @@ function WorkshopControls() {
     });
   return (
     <>
-      <Seg label="Experiment" value={active} options={[["circuit", "Circuit"], ["lever", "Lever"], ["wave", "Rope"], ["ripple", "Ripples"]] as const} onChange={pick} />
-      {ripple && <RippleControls r={ripple} />}
-      {!ripple && circuit && (
-        <>
-          <Caption>Bulbs connected in</Caption>
-          <Seg label="Layout" value={circuit.layout} options={[["series", "Series"], ["parallel", "Parallel"]] as const} onChange={(layout) => patchModules({ circuit: { ...circuit, layout } })} />
-          <div className="group-rows mt-2">
-            <Slider label="Battery" min={0} max={12} step={0.5} value={circuit.voltage} display={fmt(circuit.voltage, "V", 1)} onChange={(voltage) => patchModules({ circuit: { ...circuit, voltage } })} />
-          </div>
-          <Caption>Bulbs</Caption>
-          <Seg label="Bulbs" value={circuit.bulbs} options={[[1, "1"], [2, "2"], [3, "3"], [4, "4"]] as const} onChange={(bulbs) => patchModules({ circuit: { ...circuit, bulbs, broken: circuit.broken.filter((i) => i < bulbs) } })} />
-          <Toggle label="Switch closed" checked={circuit.closed} onChange={(closed) => patchModules({ circuit: { ...circuit, closed } })} />
-        </>
-      )}
-      {!ripple && !circuit && lever && (
+      <Seg label="Experiment" value={active} options={[["circuit", "Circuit"], ["magnet", "Magnets"], ["lever", "Lever"], ["wave", "Rope"], ["ripple", "Ripples"]] as const} onChange={pick} cols={3} />
+      {magnet && <MagnetControls lab={magnet} />}
+      {!magnet && ripple && <RippleControls r={ripple} />}
+      {!magnet && !ripple && circuitBoard(circuit) && <CircuitControls board={circuitBoard(circuit)!} />}
+      {!magnet && !ripple && !circuit && lever && (
         <div className="group-rows mt-2">
           <Slider label="Left weight" min={0.5} max={20} step={0.5} value={lever.leftMass} display={fmt(lever.leftMass, "kg", 1)} onChange={(leftMass) => patchModules({ lever: { ...lever, leftMass } })} />
           <Slider label="Left distance" min={0.2} max={2.4} step={0.1} value={lever.leftDistance} display={fmt(lever.leftDistance, "m", 1)} onChange={(leftDistance) => patchModules({ lever: { ...lever, leftDistance } })} />
@@ -363,7 +390,7 @@ function WorkshopControls() {
           <Slider label="Right distance" min={0.2} max={2.4} step={0.1} value={lever.rightDistance} display={fmt(lever.rightDistance, "m", 1)} onChange={(rightDistance) => patchModules({ lever: { ...lever, rightDistance } })} />
         </div>
       )}
-      {!ripple && !circuit && !lever && wave && (
+      {!magnet && !ripple && !circuit && !lever && wave && (
         <>
           <Seg label="Wave kind" value={wave.kind} options={[["transverse", "Side to side"], ["longitudinal", "Push and pull"]] as const} onChange={(kind) => patchModules({ wave: { ...wave, kind } })} />
           <div className="group-rows mt-2">
@@ -519,7 +546,7 @@ function OpticsControls() {
         <>
           <Caption>{o.elements.length > 1 ? "Element" : "The " + el.kind.replace(/_/g, " ")}</Caption>
           {o.elements.length > 1 && (
-            <select aria-label="Pick an element" className="w-full rounded-xl bg-white/80 px-3 py-2.5 text-sm" value={el.id} onChange={(e) => setPicked(e.target.value)}>
+            <select aria-label="Pick an element" className="w-full rounded-xl bg-white/80 px-3 py-2.5 text-sm" value={el.id} onChange={(e) => { setPicked(e.target.value); const p = o.elements.find((x) => x.id === e.target.value); if (p) noteFocus({ kind: "optic", id: p.id, label: `The ${p.kind.replace(/_/g, " ")} "${p.id}" on the optics table` }); }}>
               {o.elements.map((e) => <option key={e.id} value={e.id}>{e.id.replace(/_/g, " ")} ({e.kind.replace(/_/g, " ")})</option>)}
             </select>
           )}
@@ -574,28 +601,33 @@ function OpticsControls() {
 const TEMP_RANGE: Record<SubstanceId, [number, number]> = { water: [-40, 140], iron: [0, 3200], nitrogen: [-230, -150], chocolate: [0, 80] };
 
 function LabControls() {
-  const { particles, cell } = useSim(useShallow((s) => ({ particles: s.modules.particles, cell: s.modules.cell })));
+  const { particles, cell, reaction, population, genetics, osmosis } = useSim(useShallow((s) => ({ particles: s.modules.particles, cell: s.modules.cell, reaction: s.modules.reaction, population: s.modules.population, genetics: s.modules.genetics, osmosis: s.modules.osmosis })));
   const readingTable = useSim((s) => s.camera.preset === "periodic_table");
   const table = useSim((s) => s.modules.periodicTable) ?? EMPTY_TABLE;
   const element = table.elements.length === 1 ? PERIODIC_ELEMENTS[table.elements[0] - 1] : null;
   const busy = useSim(s => s.aiStatus !== "idle");
   const tableAction = (command: Parameters<typeof execNow>[0]) => { cancelPlayback(); execNow(command); };
-  const active = readingTable ? "table" : particles ? "matter" : cell ? "cell" : "chem";
+  const active = readingTable ? "table" : particles ? "matter" : cell ? "cell" : reaction ? "reaction" : population ? "population" : genetics ? "genetics" : osmosis ? "osmosis" : "chem";
   const pick = (k: typeof active) => {
     if (k === "table") { execNow({ op: "show_periodic_table" }); return; }
     if (readingTable) useSim.getState().focus({ preset: "home" });
-    if (k === "chem") patchModules({ particles: null, cell: null });
+    if (k === "chem") patchModules({ particles: null, cell: null, reaction: null, population: null, genetics: null, osmosis: null });
     else if (k === "matter") execNow({ op: "show_particles", substance: "water", temperatureC: 20 });
+    else if (k === "reaction") execNow({ op: "show_reaction" });
+    else if (k === "population") execNow({ op: "show_population", model: "predator_prey" });
+    else if (k === "genetics") execNow({ op: "show_genetics", parent1: "Rr", parent2: "Rr" });
+    else if (k === "osmosis") execNow({ op: "show_osmosis", mode: "osmosis" });
     else execNow({ op: "show_cell", kind: "animal" });
   };
   return (
     <>
-      <Seg label="Explore" value={active} options={[["chem", "Molecules"], ["table", "Table"], ["matter", "Matter"], ["cell", "Cells"]] as const} onChange={pick} />
+      <Seg label="Explore" value={active} options={[["chem", "Molecules"], ["table", "Table"], ["matter", "Matter"], ["reaction", "Reactions"], ["cell", "Cells"], ["population", "Ecology"], ["genetics", "Genetics"], ["osmosis", "Osmosis"]] as const} onChange={pick} cols={3} />
       {readingTable && <>
         <Caption>118 elements</Caption>
         <select aria-label="Find an element" className="mt-1 w-full rounded-xl bg-white/80 px-3 py-2.5 text-sm" value={table.elements.length === 1 ? table.elements[0] : ""} onChange={(e) => {
           if (!e.target.value) return;
           const el = PERIODIC_ELEMENTS[Number(e.target.value) - 1];
+          noteElement(el.number);
           tableAction({ op: "show_periodic_table", elements: [el.number], groups: [], periods: [], caption: `${el.number} · ${el.name} (${el.symbol}) · Period ${el.period}${el.group ? ` · Group ${el.group}` : ""}`, focus: false });
         }}>
           <option value="">Find an element…</option>
@@ -637,16 +669,20 @@ function LabControls() {
           <Note>Hotter particles move faster. Melting and boiling happen when they move fast enough to break free.</Note>
         </>
       )}
+      {reaction && <ReactionControls />}
+      {population && <PopulationControls />}
+      {genetics && <GeneticsControls />}
+      {osmosis && <OsmosisControls />}
       {cell && (
         <>
           <Caption>Cell</Caption>
-          <Seg label="Cell" value={cell.kind} options={CELL_KINDS.map((k) => [k, k[0].toUpperCase() + k.slice(1)] as const)} onChange={(kind) => execNow({ op: "show_cell", kind })} />
+          <Picker<CellKind> label="Cell" value={cell.kind} onChange={(kind) => { execNow({ op: "show_cell", kind }); noteFocus({ kind: "cell", label: CELL_NAMES[kind], detail: CELL_SUMMARY[kind] }); }} groups={CELL_PICKER} />
           <Caption>Parts</Caption>
           <div className="group-rows">
             {CELL_PARTS[cell.kind].map((id) => {
               const on = cell.highlight === id;
               return (
-                <button key={id} type="button" aria-pressed={on} className="btn-quiet block w-full px-3.5 py-2 text-left" onClick={() => patchModules({ cell: { ...cell, highlight: on ? null : id } })}>
+                <button key={id} type="button" aria-pressed={on} className="btn-quiet block w-full px-3.5 py-2 text-left" onClick={() => pickCellPart(on ? null : id)}>
                   <span className="flex items-center gap-2 text-[15px] font-bold">
                     <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: ORGANELLES[id].color }} />
                     {ORGANELLES[id].name}
@@ -830,7 +866,7 @@ function PhysicsTuning({ id, mass, bounciness }: { id: string; mass: number; bou
   );
 }
 
-function Row({ label, value }: { label: string; value: React.ReactNode }) {
+export function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-[15px]">
       <span className="font-semibold text-ink-2">{label}</span>
@@ -893,11 +929,12 @@ function useSelection() {
   }
   const o = obj!;
   if (o.type === "molecule") {
-    const m = MOLECULES[o.molecule];
+    const m = getMolecule(o.molecule);
+    if (!m) return null;
     return {
       key: o.id,
       title: `${m.name}, ${m.formula}`,
-      sub: `${m.shape[0].toUpperCase()}${m.shape.slice(1)} shape`,
+      sub: m.shape ? `${m.shape[0].toUpperCase()}${m.shape.slice(1)} shape · ${molarMass(m)} g/mol` : `${molarMass(m)} g/mol · ${m.atoms.length} atoms`,
       body: (
         <div className="group-rows">
           {m.facts.map((f) => (

@@ -20,7 +20,7 @@ import { isFurniture } from "@/lib/world/furnishings";
 import { FurnitureColliders } from "./furniture";
 import { isLearningAsset } from "@/lib/world/learning-assets";
 import { LearningColliders } from "./learning-assets";
-import { beginMapGrab, MapDragController } from "../builder/map-drag";
+import { beginMapGrab, MapDragController, playMovable } from "../builder/map-drag";
 import { useBuilder } from "@/lib/builder/store";
 import { isPlanetary } from "@/lib/environment";
 
@@ -118,7 +118,7 @@ function PhysObject({ o }: { o: SceneObject }) {
 
   if (!o.visible) return null;
   const model = (
-    <group scale={o.scale} onPointerDown={select} onPointerOver={(e) => onOver(e, o.physics === "dynamic" || useBuilder.getState().editing)} onPointerOut={onOut}>
+    <group scale={o.scale} onPointerDown={select} onPointerOver={(e) => onOver(e, o.physics === "dynamic" || playMovable(o) || useBuilder.getState().editing)} onPointerOut={onOut}>
       <Appear on={pop}>
         <Model o={o} animate={animate} />
       </Appear>

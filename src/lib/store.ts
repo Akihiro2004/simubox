@@ -3,7 +3,10 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { GUIDE_ID, LIMITS, WORLDS, type Vec3, type WorldId } from "./world/catalog";
-import { initialObjects, objectKind, type Character, type SceneObject } from "./world/scene";
+import { initialObjects, objectKind, objectName, type Character, type SceneObject } from "./world/scene";
+import { getMolecule, molarMass } from "./engine/chemistry";
+import { CELL_NAMES, ORGANELLES, type OrganelleId } from "./engine/biology";
+import { PERIODIC_ELEMENTS } from "./periodic-table";
 import { livePosition } from "./world/runtime";
 import { mapSummaries, readMaps } from "./builder/maps";
 import { solveProjectile, type ProjectileResult } from "./engine/projectile";
@@ -135,8 +138,27 @@ interface SceneData {
   cards: InfoCard[];
 }
 
+/**
+ * What the student last pointed at: a part they clicked, an atom, an element,
+ * a slider they moved. Sent with every question so "what is this?" has an answer.
+ */
+export interface Attention {
+  /** object, character, atom, cell_part, cell, element, planet, optic, circuit, signal, control, action… */
+  kind: string;
+  /** Human-readable name, e.g. "Mitochondria in a Sperm cell". */
+  label: string;
+  /** Extra facts the guide can use, e.g. what the part does. */
+  detail?: string;
+  /** Scene object id, when it is one. */
+  id?: string;
+  at: number;
+}
+
 export interface SimState extends SceneData {
   selectedId: string | null;
+  attention: Attention | null;
+  /** Earlier picks, newest first (at most 4). */
+  recentAttention: Attention[];
   speech: Speech | null;
   question: Question | null;
   explanation: Explanation | null;
@@ -244,6 +266,8 @@ export const useSim = create<SimState>()(
     (set) => ({
       ...freshScene("bedroom"),
       selectedId: null,
+      attention: null,
+      recentAttention: [],
       speech: null,
       question: null,
       explanation: null,
@@ -357,7 +381,65 @@ export function projectileResult(p: ProjectileState | null): ProjectileResult | 
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
+
+function focusSummary(s: SimState): Pick<SceneSnapshot, "focus" | "recentFocus"> {
+  const now = Date.now();
+  const fresh = (f: Attention) => now - f.at < FOCUS_TTL_MS;
+  const out: Pick<SceneSnapshot, "focus" | "recentFocus"> = {};
+  const a = s.attention;
+  if (a && fresh(a)) out.focus = { kind: a.kind.slice(0, 24), label: a.label, ...(a.detail ? { detail: a.detail } : {}), ...(a.id ? { id: a.id } : {}), secondsAgo: Math.round((now - a.at) / 1000) };
+  const recent = s.recentAttention.filter(fresh).map((f) => f.label);
+  if (recent.length) out.recentFocus = recent;
+  return out;
+}
 const finiteOrNull = (n: number | undefined) => (n !== undefined && Number.isFinite(n) ? r2(n) : null);
+
+/** Record what the student just pointed at (UI clicks, picks and panel changes; never the lesson's own actions). */
+export function noteFocus(f: Omit<Attention, "at">) {
+  const s = useSim.getState();
+  const prev = s.attention;
+  const recent = prev && prev.label !== f.label ? [prev, ...s.recentAttention.filter((r) => r.label !== f.label && r.label !== prev.label)].slice(0, 4) : s.recentAttention;
+  s.set({ attention: { ...f, label: f.label.slice(0, 120), detail: f.detail?.slice(0, 300), at: Date.now() }, recentAttention: recent });
+}
+
+/** Highlight a part of the cell on the bench (or clear it) and remember the student picked it. */
+export function pickCellPart(part: OrganelleId | null) {
+  const s = useSim.getState();
+  const cell = s.modules.cell;
+  if (!cell) return;
+  s.set({ modules: { ...s.modules, cell: { ...cell, highlight: part } } });
+  if (part) noteFocus({ kind: "cell_part", label: `${ORGANELLES[part].name} (part of the ${CELL_NAMES[cell.kind]})`, detail: ORGANELLES[part].job });
+}
+
+/** Remember the student picked an element on the periodic table. */
+export function noteElement(n: number) {
+  const el = PERIODIC_ELEMENTS[n - 1];
+  if (el) noteFocus({ kind: "element", label: `${el.name} (${el.symbol}), element ${el.number} on the periodic table`, detail: `${el.group ? `Group ${el.group}` : el.series}, period ${el.period}, atomic weight ${el.weight}` });
+}
+
+/** What a selected scene object or character is, in words the guide can use. */
+function describeSelection(s: SimState, id: string): Omit<Attention, "at"> | null {
+  const o = s.objects[id];
+  if (o?.type === "molecule") {
+    const m = getMolecule(o.molecule);
+    return m ? { kind: "molecule", id, label: `${m.name} molecule (${m.formula})`, detail: `${molarMass(m)} g/mol, ${m.atoms.length} atoms${m.shape ? `, ${m.shape} shape` : ""}` } : null;
+  }
+  if (o) return { kind: o.type === "atom" ? "atom_model" : "object", id, label: objectName(o), detail: `${objectKind(o)}${o.physics === "dynamic" ? ", moves with physics" : ""}${o.learnerPlaced ? ", placed by the student" : ""}` };
+  const c = s.characters[id];
+  return c ? { kind: "character", id, label: `${c.name} (${c.kind})` } : null;
+}
+
+/** Older than this, a pick is no longer what "this" means. */
+const FOCUS_TTL_MS = 10 * 60_000;
+
+// Every click that selects something in the world (objects, molecules, characters, the
+// builder's list) goes through selectedId, which only the student sets: remember it.
+useSim.subscribe((s, prev) => {
+  if (s.selectedId && s.selectedId !== prev.selectedId) {
+    const d = describeSelection(s, s.selectedId);
+    if (d) noteFocus(d);
+  }
+});
 
 /** Compact scene description sent to the director with each prompt. */
 export function snapshot(s: SimState): SceneSnapshot {
@@ -390,6 +472,7 @@ export function snapshot(s: SimState): SceneSnapshot {
       })),
     characters: Object.values(s.characters).map((c) => ({ id: c.id, kind: c.kind, name: c.name })),
     selected: s.selectedId,
+    ...focusSummary(s),
     modules: modulesSummary(s.modules),
     ...(s.environment ? { environment: { ...s.environment } } : {}),
   };

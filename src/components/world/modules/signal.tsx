@@ -11,7 +11,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import { DataTexture, LinearFilter, Plane, Raycaster, RGBAFormat, Vector2, Vector3, type Mesh, type MeshBasicMaterial } from "three";
 import { Html } from "@/components/world/html";
-import { useSim } from "@/lib/store";
+import { noteFocus, useSim } from "@/lib/store";
 import { patchSignal, signalReception, type SignalState } from "@/lib/modules";
 import { WaveField, discCells, paintSegment, type Driver } from "@/lib/engine/wave2d";
 import { PLAN, SIGNAL_KINDS, WALL_LOSS, formatFrequency, formatLength, formatStrength, reception, shownWavelength, strengthLevel, wallWaveProps, type WallMaterial } from "@/lib/engine/waves";
@@ -90,6 +90,8 @@ function useDrag(which: "source" | "device") {
     };
     const up = () => {
       if (!dragging.current) return;
+      const sig = useSim.getState().modules.signal;
+      if (sig) noteFocus({ kind: "signal", label: which === "source" ? `The ${SIGNAL_KINDS[sig.kind].name} source (just moved by the student)` : "The receiving device (just moved by the student)", detail: `now at x ${sig[which][0].toFixed(1)} m, z ${sig[which][1].toFixed(1)} m` });
       dragging.current = false;
       if (controlsRef.current) controlsRef.current.enabled = true;
       document.body.style.cursor = "";

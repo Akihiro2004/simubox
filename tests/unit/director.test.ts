@@ -35,7 +35,11 @@ describe("prompt", () => {
     const p = systemPrompt();
     expect(p).toContain(ref);
     for (const e of EXAMPLES) expect(p).toContain(e.prompt);
-    expect(p.length).toBeLessThan(60_000);
+    // Budget raised from 60k for the molecular dynamics and any-compound (PubChem) capabilities,
+    // and by 500 for the reaction, population, genetics and osmosis labs (after compacting the
+    // placeholder list and the simulated-capability rule to make most of the room).
+    // +3,500 for the circuit board (15 part kinds, place/set/remove commands, per-part readings) and the magnet lab (both trimmed to the minimum).
+    expect(p.length).toBeLessThan(65_000);
   });
 });
 

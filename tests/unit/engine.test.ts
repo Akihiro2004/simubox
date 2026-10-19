@@ -68,9 +68,12 @@ describe("projectile", () => {
   });
 });
 
+// The hand-built molecules with measured geometry; tests/unit/molecules.test.ts covers the computed library.
+const CURATED = MOLECULE_IDS.slice(0, 8);
+
 describe("molecules", () => {
   it("every molecule has valid connectivity", () => {
-    for (const id of MOLECULE_IDS) {
+    for (const id of CURATED) {
       const m = MOLECULES[id];
       expect(m.id).toBe(id);
       for (const b of m.bonds) {
@@ -84,7 +87,7 @@ describe("molecules", () => {
   });
 
   it("geometry matches curated angles and lengths", () => {
-    for (const id of MOLECULE_IDS) {
+    for (const id of CURATED) {
       const m = MOLECULES[id];
       for (const a of m.angles) close(measureAngle(m, a.atoms), a.deg, 0.1);
     }

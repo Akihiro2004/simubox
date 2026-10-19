@@ -5,7 +5,7 @@ import { type PlanRequest, type PlanIssue, type ScenePlan } from "../ssp/schema"
 import { normalizePlan, validatePlan, type ValidationResult } from "../ssp/validate";
 import { createStepStreamer, type StepEvent } from "../ssp/stream";
 import { matchCapabilities } from "./capabilities";
-import { chooseTeaching, isParameterFollowUp, teachingPlanIssue } from "./teaching";
+import { chooseTeaching, isParameterFollowUp, routedPrompt, teachingPlanIssue } from "./teaching";
 import { looksIndonesian, precheck, safePlan } from "./guard";
 import { systemPrompt, userPrompt } from "./prompt";
 import { DEEPSEEK_MODEL, deepseekConfigured, deepseekJson } from "./deepseek";
@@ -63,7 +63,7 @@ export function geminiSchema(schema: z.ZodType): unknown {
 export type DirectorEvent = { type: "status"; text: string } | { type: "thought"; title: string; text: string } | { type: "step"; title: string } | StepEvent;
 
 export type DirectorResult =
-  | { ok: true; plan: ScenePlan; issues: PlanIssue[]; model: string; repaired: boolean; ms: number; mode?: "quick" | "lesson" }
+  | { ok: true; plan: ScenePlan; issues: PlanIssue[]; model: string; repaired: boolean; ms: number; mode?: "quick" | "lesson"; /** When the first step started playing: what the student actually waits for. */ firstStepMs?: number }
   | { ok: false; status: number; error: string; code: "ai_unconfigured" | "ai_quota" | "ai_failed" | "ai_timeout" };
 
 /** Out of credits (402) or over the usage quota (429): retrying won't help, the app should use its offline demos. */
@@ -206,29 +206,33 @@ export async function direct(req: PlanRequest, emit: (e: DirectorEvent) => void 
   const lang = req.language === "auto" ? (looksIndonesian(req.prompt) ? "id" : "en") : req.language;
   const deadline = AbortSignal.timeout(Number(process.env.AI_TIMEOUT_MS) || 70_000);
   const signal = cancel ? AbortSignal.any([deadline, cancel]) : deadline;
-  const mode = lessonMode(req);
-  const teaching = chooseTeaching(req);
+  // Route a vague "what is this?" as if it named what the student just clicked.
+  const routed = { ...req, prompt: routedPrompt(req) };
+  const mode = lessonMode(routed);
+  const teaching = chooseTeaching(routed);
   const validate = (raw: unknown): ValidationResult => {
     const result = validatePlan(normalizePlan(raw, lang), req.scene);
     if (!result.ok) return result;
     const issue = teachingPlanIssue(result.plan, teaching);
     return issue ? { ok: false, error: issue } : result;
   };
-  const base = userPrompt(req, matchCapabilities(req.prompt), mode);
+  const base = userPrompt(req, matchCapabilities(routed.prompt), mode);
   try {
     emit({ type: "status", text: mode === "quick" ? "Changing the scene" : "Reading your question" });
     // Steps go out (and start playing) as soon as each one is complete.
     const streamer = createStepStreamer(req.scene, lang, plan => teachingPlanIssue(plan, teaching) === null);
+    let firstStepAt = 0;
+    const firstStepMs = () => (firstStepAt ? firstStepAt - started : undefined);
     let first: string;
     let model = MODEL;
     try {
-      ({ text: first, model } = await generate(base, signal, emit, mode === "quick" ? "quick" : "lesson", { onText: (text) => streamer.feed(text).forEach(emit), started: () => streamer.count > 0 }));
+      ({ text: first, model } = await generate(base, signal, emit, mode === "quick" ? "quick" : "lesson", { onText: (text) => { const steps = streamer.feed(text); if (steps.length && !firstStepAt) firstStepAt = Date.now(); steps.forEach(emit); }, started: () => streamer.count > 0 }));
     } catch (e) {
       // The connection dropped mid-lesson: keep what already played.
       const played = streamer.played();
       if (!streamer.count || !played) throw e;
       console.error(JSON.stringify({ event: "ai_stream_cut", model, steps: streamer.count, message: String(e).slice(0, 200) }));
-      return { ok: true, plan: played, issues: streamer.issues, model, repaired: false, ms: Date.now() - started, mode };
+      return { ok: true, plan: played, issues: streamer.issues, model, repaired: false, ms: Date.now() - started, mode, firstStepMs: firstStepMs() };
     }
     let result = validate(safeJson(first));
     // Some steps are already playing, so a whole-plan repair can't replace
@@ -239,7 +243,7 @@ export async function direct(req: PlanRequest, emit: (e: DirectorEvent) => void 
     }
     const played = streamer.count ? streamer.played(result.ok ? result.plan : undefined) : null;
     if (played) {
-      return { ok: true, plan: played, issues: result.ok ? result.issues : streamer.issues, model, repaired: false, ms: Date.now() - started, mode };
+      return { ok: true, plan: played, issues: result.ok ? result.issues : streamer.issues, model, repaired: false, ms: Date.now() - started, mode, firstStepMs: firstStepMs() };
     }
     let repaired = false;
     // One repair round if anything was rejected, with the exact problems.

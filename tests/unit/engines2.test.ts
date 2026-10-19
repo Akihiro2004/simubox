@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PLANETS, PLANET_IDS, displayDistance, keplerRatio, moonIllumination, moonPhaseName, orbitAngle, seasonNorth, subsolarLatitude } from "@/lib/engine/astro";
 import { PLACES, distanceKm, latLonToVec3, solarTimeOffset } from "@/lib/engine/geo";
-import { FLUIDS, MATERIALS, agitation, buoyantForce, floatFraction, floats, phaseAt, rmsSpeed, solveCircuit, solveLever, sphereSubmerged, waveDisplacement, waveSpeed } from "@/lib/engine/physics2";
+import { FLUIDS, MATERIALS, buoyantForce, floatFraction, floats, phaseAt, rmsSpeed, solveCircuit, solveLever, sphereSubmerged, waveDisplacement, waveSpeed } from "@/lib/engine/physics2";
 import { compileExpression, isValidExpression, sampleExpression } from "@/lib/engine/expr";
 import { measureShape, polygonArea } from "@/lib/engine/geometry";
 import { CELL_PARTS, ORGANELLES } from "@/lib/engine/biology";
@@ -139,7 +139,6 @@ describe("waves, levers, matter", () => {
     expect(phaseAt("chocolate", 40)).toBe("liquid");
     // Water vapour at 100 °C: about 719 m/s.
     near(rmsSpeed("water", 100), 719, 2);
-    expect(agitation(100)).toBeGreaterThan(agitation(0));
   });
 });
 

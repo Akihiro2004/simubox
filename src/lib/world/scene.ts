@@ -1,5 +1,5 @@
 import { ASSETS, type AssetId, type AnimationName, type CharacterKind, type PrimitiveShape, type Vec3, type WorldId } from "./catalog";
-import type { MoleculeId } from "../engine/chemistry";
+import { getMolecule, type MoleculeId } from "../engine/chemistry";
 import type { ShapeKind } from "../engine/geometry";
 import { PARK_LAYOUT } from "./park-layout";
 import type { MaterialId } from "../engine/physics2";
@@ -91,7 +91,7 @@ export function objectKind(o: SceneObject): string {
 export function objectName(o: SceneObject): string {
   if (o.label) return o.label;
   if (o.type === "asset") return ASSETS[o.asset].name;
-  if (o.type === "molecule") return o.molecule;
+  if (o.type === "molecule") return getMolecule(o.molecule)?.name ?? o.molecule;
   if (o.type === "atom") return `${o.element} atom`;
   return o.shape;
 }

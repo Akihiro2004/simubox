@@ -9,7 +9,7 @@ import { useSim } from "@/lib/store";
 import { cascade, popover, rise, spring, swap } from "@/lib/motion";
 import { answerQuestion, placeholderValues, replay, resolvePlaceholder, skipSpeech } from "@/lib/player";
 import { fillProse } from "@/lib/ssp/validate";
-import { MOLECULES } from "@/lib/engine/chemistry";
+import { getMolecule } from "@/lib/engine/chemistry";
 
 /** Tiny Simu face, used wherever the guide "speaks" in the interface. */
 export function SimuFace({ size = 28, className = "" }: { size?: number; className?: string }) {
@@ -340,7 +340,7 @@ export function Metrics() {
   const v = placeholderValues();
   const mol = Object.values(objects).find((o) => o.type === "molecule");
   const value = (m: string) => {
-    if (m === "bond_angle") return mol?.type === "molecule" && MOLECULES[mol.molecule].angles[0] ? `${MOLECULES[mol.molecule].angles[0].deg}°` : "–";
+    if (m === "bond_angle") return mol?.type === "molecule" && getMolecule(mol.molecule)?.angles[0] ? `${getMolecule(mol.molecule)!.angles[0].deg}°` : "–";
     if (m !== "gravity" && status === "flying") return "…";
     const [name, arg] = m.split(":");
     return (arg ? undefined : v[name] !== "?" ? v[name] : undefined) ?? resolvePlaceholder(name, arg) ?? "–";

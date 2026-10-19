@@ -3,6 +3,8 @@
 // (NIST CCCBDB, https://cccbdb.nist.gov) and is built here deterministically.
 
 import type { Vec3 } from "../world/catalog";
+import GENERATED from "./molecules.generated.json";
+import { PERIODIC_ELEMENTS } from "../periodic-table";
 
 export interface Atom {
   el: string;
@@ -15,6 +17,10 @@ export interface Bond {
 }
 export interface Molecule {
   id: MoleculeId;
+  /** g/mol, when known. */
+  molarMass?: number;
+  /** PubChem compound id, for compounds looked up at runtime. */
+  cid?: number;
   name: string;
   formula: string;
   shape: string;
@@ -28,14 +34,20 @@ export interface Molecule {
   source: string;
 }
 
-export const ELEMENT_COLORS: Record<string, string> = {
-  H: "#f8fafc",
-  C: "#475569",
-  N: "#3b82f6",
-  O: "#ef4444",
-  Cl: "#22c55e",
+// Jmol/CPK colours and Cordero (2008) covalent radii in Å for elements found in
+// everyday and school chemistry. Others fall back to a neutral colour and 1.5 Å.
+const EL_DATA: Record<string, [string, number]> = {
+  H: ["#f8fafc", 0.31], He: ["#d9ffff", 0.28], Li: ["#cc80ff", 1.28], Be: ["#c2ff00", 0.96], B: ["#ffb5b5", 0.84], C: ["#475569", 0.76], N: ["#3b82f6", 0.71], O: ["#ef4444", 0.66], F: ["#90e050", 0.57], Ne: ["#b3e3f5", 0.58],
+  Na: ["#ab5cf2", 1.66], Mg: ["#8aff00", 1.41], Al: ["#bfa6a6", 1.21], Si: ["#f0c8a0", 1.11], P: ["#ff8000", 1.07], S: ["#facc15", 1.05], Cl: ["#22c55e", 1.02], Ar: ["#80d1e3", 1.06], K: ["#8f40d4", 2.03], Ca: ["#3dff00", 1.76],
+  Ti: ["#bfc2c7", 1.6], Cr: ["#8a99c7", 1.39], Mn: ["#9c7ac7", 1.39], Fe: ["#e06633", 1.32], Co: ["#f090a0", 1.26], Ni: ["#50d050", 1.24], Cu: ["#c88033", 1.32], Zn: ["#7d80b0", 1.22], Se: ["#ffa100", 1.2], Br: ["#a62929", 1.2],
+  Ag: ["#c0c0c0", 1.45], Sn: ["#668080", 1.39], I: ["#940094", 1.39], Pt: ["#d0d0e0", 1.36], Au: ["#ffd123", 1.36], Hg: ["#b8b8d0", 1.32], Pb: ["#575961", 1.46],
 };
-export const ELEMENT_RADII: Record<string, number> = { H: 0.25, C: 0.38, N: 0.37, O: 0.36, Cl: 0.45 };
+const elementData = (el: string): [string, number] => EL_DATA[el] ?? ["#a78bfa", 1.5];
+export const elementColor = (el: string) => elementData(el)[0];
+/** Ball radius for drawing (Å): grows with the covalent radius (H 0.25, C 0.38, Cl 0.45). */
+export const elementRadius = (el: string) => 0.17 + 0.27 * elementData(el)[1];
+export const ELEMENT_COLORS: Record<string, string> = Object.fromEntries(Object.keys(EL_DATA).map((e) => [e, elementColor(e)]));
+export const ELEMENT_RADII: Record<string, number> = Object.fromEntries(Object.keys(EL_DATA).map((e) => [e, elementRadius(e)]));
 
 const rad = (d: number) => (d * Math.PI) / 180;
 const SRC = "NIST CCCBDB experimental geometry";
@@ -70,10 +82,17 @@ function diatomic(id: MoleculeId, name: string, formula: string, el: [string, st
   };
 }
 
-export const MOLECULE_IDS = ["H2O", "CO2", "CH4", "NH3", "O2", "N2", "H2", "HCl"] as const;
-export type MoleculeId = (typeof MOLECULE_IDS)[number];
+const CURATED = ["H2O", "CO2", "CH4", "NH3", "O2", "N2", "H2", "HCl"] as const;
+type GeneratedEntry = Omit<Molecule, "id" | "lonePairs" | "angles" | "source"> & { angles: { atoms: number[]; deg: number }[]; method: string };
+const GEN = GENERATED as unknown as Record<string, GeneratedEntry>;
+/** Library molecules: 8 with measured geometry, the rest computed at build time (scripts/build-molecules.mjs). */
+export const MOLECULE_IDS = [...CURATED, ...Object.keys(GEN)] as [string, ...string[]];
+/** Compound names the PubChem lookup accepts (letters in any language, digits, simple punctuation). */
+export const COMPOUND_NAME = /^[\p{L}\p{N} ,()'\-+[\]]{1,80}$/u;
+/** A library id, or "cid:<n>" for a PubChem compound fetched at runtime. */
+export type MoleculeId = string;
 
-function build(): Record<MoleculeId, Molecule> {
+function build(): Record<string, Molecule> {
   // Water: r(O-H) = 0.958 Å, angle 104.5°
   const wr = 0.958;
   const wa = rad(104.5 / 2);
@@ -183,7 +202,26 @@ function build(): Record<MoleculeId, Molecule> {
   };
 }
 
-export const MOLECULES = build();
+export const MOLECULES: Record<string, Molecule> = build();
+for (const [id, g] of Object.entries(GEN)) {
+  MOLECULES[id] = { ...g, id, lonePairs: [], angles: g.angles.map((a) => ({ atoms: a.atoms as [number, number, number], deg: a.deg })), source: g.method === "NIST CCCBDB experimental geometry" ? SRC : `Computed (${g.method}, OpenChemLib)` };
+}
+
+// Compounds fetched from PubChem at runtime, keyed "cid:<n>".
+const compounds = new Map<string, Molecule>();
+const listeners = new Set<() => void>();
+export function registerCompound(m: Molecule) {
+  compounds.set(m.id, m);
+  listeners.forEach((f) => f());
+}
+export function onCompoundsChange(f: () => void) {
+  listeners.add(f);
+  return () => void listeners.delete(f);
+}
+/** Library molecule or an already-fetched PubChem compound. */
+export function getMolecule(id: MoleculeId): Molecule | undefined {
+  return MOLECULES[id] ?? compounds.get(id);
+}
 
 export function measureAngle(m: Molecule, [a, c, b]: [number, number, number]): number {
   const A = m.atoms[a].pos, C = m.atoms[c].pos, B = m.atoms[b].pos;
@@ -191,6 +229,13 @@ export function measureAngle(m: Molecule, [a, c, b]: [number, number, number]): 
   const v = [B[0] - C[0], B[1] - C[1], B[2] - C[2]];
   const dot = u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
   return (Math.acos(dot / (Math.hypot(...u) * Math.hypot(...v))) * 180) / Math.PI;
+}
+
+/** Molar mass (g/mol) from IUPAC standard atomic weights. */
+export function molarMass(m: Molecule): number {
+  if (m.molarMass) return m.molarMass;
+  const w = (el: string) => parseFloat((PERIODIC_ELEMENTS.find((e) => e.symbol === el)?.weight ?? "0").replace(/[[]]/g, ""));
+  return Math.round(m.atoms.reduce((s, a) => s + w(a.el), 0) * 100) / 100;
 }
 
 export function bondLength(m: Molecule, bond: Bond): number {
@@ -236,4 +281,25 @@ export function shells(z: number): number[] {
 
 export function elementBySymbol(s: string): ElementInfo | undefined {
   return ELEMENTS.find((e) => e.symbol.toLowerCase() === s.toLowerCase());
+}
+
+const pending = new Map<string, Promise<Molecule>>();
+/** Browser only: fetch a PubChem compound's 3D model through /api/chem/compound (deduplicated, then cached). */
+export function loadCompound(q: { name: string } | { cid: number }): Promise<Molecule> {
+  const key = "cid" in q ? `cid:${q.cid}` : `name:${q.name.toLowerCase()}`;
+  const known = "cid" in q ? compounds.get(key) : [...compounds.values()].find((m) => m.name.toLowerCase() === key.slice(5));
+  if (known) return Promise.resolve(known);
+  let p = pending.get(key);
+  if (!p) {
+    p = fetch(`/api/chem/compound?${"cid" in q ? `cid=${q.cid}` : `name=${encodeURIComponent(q.name)}`}`)
+      .then(async (res) => {
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error || "Couldn't load that compound.");
+        registerCompound(body as Molecule);
+        return body as Molecule;
+      })
+      .finally(() => pending.delete(key));
+    pending.set(key, p);
+  }
+  return p;
 }

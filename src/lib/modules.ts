@@ -4,12 +4,19 @@
 
 import { MOON, PLANETS, orbitOf, sunlightVsEarth, moonIllumination, moonPhaseName, seasonNorth, subsolarLatitude, type PlanetId } from "./engine/astro";
 import { PLACES, distanceKm } from "./engine/geo";
-import { FLUIDS, MATERIALS, floatFraction, phaseAt, rmsSpeed, solveCircuit, solveLever, wavePeriod, waveSpeed, type FluidId, type MaterialId, type SubstanceId } from "./engine/physics2";
+import { FLUIDS, MATERIALS, floatFraction, phaseAt, rmsSpeed, solveLever, wavePeriod, waveSpeed, type FluidId, type MaterialId, type SubstanceId } from "./engine/physics2";
+import { PART_INFO, legacyBoard, presetBoard, solveCircuit, type Board, type CircuitResult } from "./engine/circuit";
+import { coilMagnetisation, compassReading, fieldAt, forceOn, formatTesla, magnetPreset, type MagnetLab } from "./engine/magnet";
 import { measureShape } from "./engine/geometry";
+import { getMolecule, molarMass } from "./engine/chemistry";
 import type { CellKind } from "./engine/biology";
 import { EMPTY_TABLE, type PeriodicTableState } from "./periodic-table";
 import { DEFAULT_MECHANICS, DEFAULT_MATH, type MechanicsState, type MathState } from "./experiments";
 import { mechanicsAt } from "./engine/mechanics";
+import { DEFAULT_REACTION, balance, collisionFraction, CATALYST_FACTOR, type ReactionState } from "./engine/reactions";
+import { DEFAULT_POPULATION, cyclePeriod, solvePopulation, type PopulationState } from "./engine/ecology";
+import { DEFAULT_GENETICS, phenotype, punnett, ratio, sampleOffspring, type GeneticsState } from "./engine/genetics";
+import { DEFAULT_OSMOSIS, isotonicPosition, type OsmosisState } from "./engine/osmosis";
 import { schoolMath } from "./engine/school-math";
 import type { SceneObject } from "./world/scene";
 import { ASSETS, type WorldId } from "./world/catalog";
@@ -94,7 +101,8 @@ export interface Modules {
   orbits: { mode: "solar_system" | "earth_moon" | "seasons"; planets: PlanetId[]; focus: PlanetId | "sun" | "moon" | null; daysPerSecond: number; labels: boolean; /** Planets moved to another distance (AU), e.g. "what if Earth and Neptune swapped?" */ distances: Partial<Record<PlanetId, number>> } | null;
   fluid: FluidId | null;
   plot: { functions: PlotFn[]; points: PlotPoint[]; vectors: PlotVec[] } | null;
-  circuit: { layout: "series" | "parallel"; voltage: number; bulbs: number; resistance: number; closed: boolean; /** blown bulbs, 0-based */ broken: number[] } | null;
+  /** The circuit board on the workshop mat (older saves hold a series/parallel object; read it with circuitBoard). */
+  circuit: Board | null;
   wave: { kind: "transverse" | "longitudinal"; amplitude: number; frequency: number; wavelength: number } | null;
   lever: { leftMass: number; leftDistance: number; rightMass: number; rightDistance: number } | null;
   particles: { substance: SubstanceId; temperatureC: number } | null;
@@ -106,6 +114,16 @@ export interface Modules {
   signal?: SignalState | null;
   /** The Light Lab's optics table. */
   optics?: OpticsSetup | null;
+  /** Magnet lab on the workshop mat: magnets, coils, wires, compasses and test objects. */
+  magnet?: MagnetLab | null;
+  /** Lab pedestal: equation balancing and the collision-theory reaction box. */
+  reaction?: ReactionState | null;
+  /** Lab pedestal: population graph (logistic or predator–prey). */
+  population?: PopulationState | null;
+  /** Lab pedestal: Punnett square and grown offspring. */
+  genetics?: GeneticsState | null;
+  /** Lab pedestal: diffusion / osmosis particle tank. */
+  osmosis?: OsmosisState | null;
 }
 
 export const ALL_PLANETS = Object.keys(PLANETS) as PlanetId[];
@@ -123,7 +141,7 @@ export const MODULE_DEFAULTS: { [K in keyof Modules]-?: NonNullable<Modules[K]> 
   orbits: { mode: "solar_system", planets: ALL_PLANETS, focus: null, daysPerSecond: 20, labels: true, distances: {} },
   fluid: "fresh_water",
   plot: { functions: [], points: [], vectors: [] },
-  circuit: { layout: "series", voltage: 6, bulbs: 2, resistance: 10, closed: true, broken: [] },
+  circuit: presetBoard("series_bulbs"),
   wave: { kind: "transverse", amplitude: 0.5, frequency: 1, wavelength: 2 },
   lever: { leftMass: 4, leftDistance: 1, rightMass: 2, rightDistance: 1.5 },
   particles: { substance: "water", temperatureC: 20 },
@@ -132,6 +150,11 @@ export const MODULE_DEFAULTS: { [K in keyof Modules]-?: NonNullable<Modules[K]> 
   ripple: { frequency: 1.5, amplitude: 0.012, depth: 0.08, source: "point", separation: 0.5, barrier: "none", gapWidth: 0.3, barrierX: 0.2, reflectorAngle: 30, shallow: false, shallowDepth: 0.02, sourceSpeed: 0, view: "waves" },
   signal: signalDefaults(),
   optics: opticsPreset("reflection"),
+  magnet: magnetPreset("bar_magnet"),
+  reaction: DEFAULT_REACTION,
+  population: DEFAULT_POPULATION,
+  genetics: DEFAULT_GENETICS,
+  osmosis: DEFAULT_OSMOSIS,
 };
 
 export function defaultModules(world: WorldId): Modules {
@@ -152,6 +175,11 @@ export function defaultModules(world: WorldId): Modules {
     signal: null,
     // The Light Lab opens with a laser and a mirror ready to play with.
     optics: world === "optics" ? MODULE_DEFAULTS.optics : null,
+    magnet: null,
+    reaction: null,
+    population: null,
+    genetics: null,
+    osmosis: null,
   };
 }
 
@@ -245,13 +273,40 @@ export function patchOptics(cur: OpticsSetup, p: OpticsPatch): OpticsSetup {
   return { ...cur, source, medium: p.medium ?? cur.medium, normals: p.normals ?? cur.normals, object, mixing: p.mixing === undefined ? cur.mixing : p.mixing, reflections: p.reflections ?? cur.reflections, lighting: p.lighting ?? cur.lighting };
 }
 
-/** Ohm's-law result for the circuit module's state. */
-export function circuitResult(c: NonNullable<Modules["circuit"]>) {
-  return solveCircuit({ layout: c.layout, voltage: c.voltage, resistances: Array(c.bulbs).fill(c.resistance), closed: c.closed, broken: Array.from({ length: c.bulbs }, (_, i) => c.broken.includes(i)) });
+/** The circuit board, whichever shape it was saved in. */
+export function circuitBoard(c: unknown): Board | null {
+  if (!c || typeof c !== "object") return null;
+  if ("parts" in c) return c as Board;
+  const old = c as { layout?: "series" | "parallel"; voltage?: number; bulbs?: number; closed?: boolean; broken?: number[] };
+  return old.layout ? legacyBoard({ layout: old.layout, voltage: old.voltage ?? 6, bulbs: old.bulbs ?? 2, closed: old.closed ?? true, broken: old.broken ?? [] }) : null;
+}
+
+/** What the circuit renderer last solved (it carries capacitor charge over time); readings use it when it matches. */
+export const circuitLive: { board: Board | null; result: CircuitResult | null } = { board: null, result: null };
+const steady = new WeakMap<Board, CircuitResult>();
+/** Readings for a board: the live (time-stepped) result when it is on screen, otherwise a steady solve. */
+export function circuitResult(board: Board): CircuitResult {
+  if (circuitLive.board === board && circuitLive.result) return circuitLive.result;
+  let r = steady.get(board);
+  if (!r) steady.set(board, (r = solveCircuit(board)));
+  return r;
+}
+
+/** A reading with a sensible unit prefix (2 mA, 1.5 kΩ, 3.0 V). */
+export function siFormat(v: number, unit: string, digits = 2): string {
+  const a = Math.abs(v);
+  if (!Number.isFinite(v)) return `∞ ${unit}`;
+  if (a !== 0 && a < 1e-3) return `${(v * 1e6).toFixed(a < 1e-5 ? 1 : 0)} µ${unit}`;
+  if (a !== 0 && a < 1) return `${(v * 1e3).toFixed(a < 0.01 ? 1 : 0)} m${unit}`;
+  if (a >= 1e6) return `${(v / 1e6).toFixed(1)} M${unit}`;
+  if (a >= 1e3) return `${(v / 1e3).toFixed(a >= 1e4 ? 0 : 1)} k${unit}`;
+  return `${v.toFixed(a >= 100 ? 0 : digits)} ${unit}`;
 }
 
 /** Simulation clock for the orbit module (days since start); advanced by the renderer. */
 export const orbitClock = { day: 80 };
+/** Live readings the lab renderers measure (reactions per second, share reacted, membrane position 0–1). */
+export const labGauge = { reactionRate: 0, reactionProgress: 0, membrane: 0.5 };
 
 /** Volume of an object in m³ (used for density and buoyancy). */
 export function objectVolume(o: SceneObject): number {
@@ -440,13 +495,57 @@ export function moduleValue(name: string, arg: string | undefined, m: Modules, o
     case "total_resistance":
     case "power":
     case "voltage": {
-      const c = m.circuit;
-      if (!c) return undefined;
-      const r = circuitResult(c);
-      if (name === "current") return `${f(r.current)} A`;
-      if (name === "total_resistance") return Number.isFinite(r.totalResistance) ? `${f(r.totalResistance, 1)} Ω` : "infinite (the path is broken)";
-      if (name === "power") return `${f(r.totalPower)} W`;
-      return `${f(c.voltage, 1)} V`;
+      const board = circuitBoard(m.circuit);
+      const battery = board?.parts.find((p) => p.kind === "battery" && !p.broken);
+      if (!board || !battery) return undefined;
+      const r = circuitResult(board);
+      if (name === "current") return siFormat(r.current, "A");
+      if (name === "power") return siFormat(r.power, "W");
+      if (name === "voltage") return siFormat(battery.value ?? 6, "V", 1);
+      // Resistance the batteries see outside themselves: terminal voltage / current.
+      const terminal = r.parts[battery.id].v;
+      return r.current > 1e-9 ? siFormat(terminal / r.current, "Ω", 1) : "infinite (the path is broken)";
+    }
+    case "field_strength":
+    case "field_direction": {
+      const lab = m.magnet;
+      const it = lab?.items.find((i) => i.id === arg);
+      if (!lab || !it) return undefined;
+      const r = compassReading(lab, it.x, it.z);
+      if (name === "field_strength") return formatTesla(r.tesla);
+      const compass = ["east", "north-east", "north", "north-west", "west", "south-west", "south", "south-east"][((Math.round(r.angleDeg / 45) % 8) + 8) % 8];
+      return `towards the ${compass} (${Math.round(((r.angleDeg % 360) + 360) % 360)}°)`;
+    }
+    case "magnet_force": {
+      const lab = m.magnet;
+      const it = lab?.items.find((i) => i.id === arg);
+      if (!lab || !it) return undefined;
+      const [fx, fz] = forceOn(lab, it.id);
+      const others = lab.items.filter((o) => o.id !== it.id && (o.kind === "bar" || o.kind === "horseshoe" || o.kind === "coil"));
+      if (!others.length) return "no force (no other magnet)";
+      // Attract when the force points towards the nearest other magnet.
+      const o = others.reduce((a, b) => (Math.hypot(b.x - it.x, b.z - it.z) < Math.hypot(a.x - it.x, a.z - it.z) ? b : a));
+      const toward = fx * (o.x - it.x) + fz * (o.z - it.z) > 0;
+      return `${siFormat(Math.hypot(fx, fz), "N")} (${toward ? "attracting" : "repelling"})`;
+    }
+    case "coil_field": {
+      const coil = m.magnet?.items.find((i) => i.kind === "coil" && (!arg || i.id === arg));
+      if (!m.magnet || !coil) return undefined;
+      const B = fieldAt({ items: [coil], earth: false }, coil.x, coil.z);
+      return `${formatTesla(Math.hypot(B[0], B[2]))} inside (${Math.round(coilMagnetisation(coil))} A/m)`;
+    }
+    case "part_current":
+    case "part_voltage":
+    case "part_power":
+    case "part_resistance": {
+      const board = circuitBoard(m.circuit);
+      const part = board?.parts.find((p) => p.id === arg);
+      if (!board || !part) return undefined;
+      const r = circuitResult(board).parts[part.id];
+      if (name === "part_current") return siFormat(Math.abs(r.i), "A");
+      if (name === "part_voltage") return siFormat(Math.abs(r.v), "V");
+      if (name === "part_power") return siFormat(Math.abs(r.p), "W");
+      return r.r === undefined || !Number.isFinite(r.r) ? `infinite (${PART_INFO[part.kind].name.toLowerCase()} is open)` : siFormat(r.r, "Ω");
     }
     case "wave_speed":
       return m.wave ? `${f(waveSpeed(m.wave))} m/s` : undefined;
@@ -466,6 +565,52 @@ export function moduleValue(name: string, arg: string | undefined, m: Modules, o
       return m.particles ? `${f(rmsSpeed(m.particles.substance, m.particles.temperatureC), 0)} m/s` : undefined;
     case "temperature":
       return m.particles ? `${f(m.particles.temperatureC, 0)} °C` : undefined;
+    case "balanced_equation":
+      if (!m.reaction) return undefined;
+      try {
+        return balance(m.reaction.equation).text;
+      } catch (e) {
+        return e instanceof Error ? e.message : undefined;
+      }
+    case "collision_fraction": {
+      const r = m.reaction;
+      if (!r) return undefined;
+      const x = collisionFraction(r.activationKJ * (r.catalyst ? CATALYST_FACTOR : 1), r.temperatureC);
+      return `${x < 0.001 ? x.toExponential(1) : f(x * 100, 2)}${x < 0.001 ? "" : "%"} of collisions`;
+    }
+    case "reaction_rate":
+      return m.reaction ? `${f(labGauge.reactionRate, 1)} reactions per second in the box (sped up)` : undefined;
+    case "reaction_progress":
+      return m.reaction ? `${Math.round(labGauge.reactionProgress * 100)}%` : undefined;
+    case "final_population":
+    case "cycle_period":
+    case "prey_peak":
+    case "predator_peak": {
+      const p = m.population;
+      if (!p) return undefined;
+      if (name === "cycle_period") return p.model === "predator_prey" ? `about ${f(cyclePeriod(p), 1)} years` : undefined;
+      const s = solvePopulation(p);
+      if (name === "final_population") return `${Math.round(s.y[0][s.y[0].length - 1])}`;
+      const k = name === "prey_peak" ? 0 : 1;
+      return p.model === "predator_prey" ? `${Math.round(Math.max(...s.y[k]))}` : undefined;
+    }
+    case "phenotype_ratio":
+    case "genotype_ratio":
+    case "offspring_counts": {
+      const g = m.genetics;
+      if (!g) return undefined;
+      try {
+        const p = punnett(g.parent1, g.parent2);
+        if (name === "phenotype_ratio") return `${ratio(p.phenotypes.map((x) => x.count))} (${p.phenotypes.map((x) => x.phenotype).join(" : ")})`;
+        if (name === "genotype_ratio") return `${ratio(p.genotypes.map((x) => x.count))} (${p.genotypes.map((x) => x.genotype).join(" : ")})`;
+        const kids = sampleOffspring(g.parent1, g.parent2, g.offspring, g.seed);
+        return p.phenotypes.map((x) => `${kids.filter((k) => phenotype(k) === x.phenotype).length} ${x.phenotype}`).join(", ");
+      } catch {
+        return undefined;
+      }
+    }
+    case "isotonic_position":
+      return m.osmosis?.mode === "osmosis" ? `${Math.round(isotonicPosition(m.osmosis) * 100)}% of the tank on the left` : undefined;
     case "day":
       return `day ${Math.floor(orbitClock.day % 365) + 1}`;
     case "season":
@@ -506,6 +651,11 @@ export function moduleValue(name: string, arg: string | undefined, m: Modules, o
       const meas = measureShape(o.shape, o.size.map((v) => v * o.scale) as [number, number, number], o.sides);
       const v = name === "volume" ? meas.volume : meas.surfaceArea;
       return v === undefined ? undefined : `${f(v, 3)} ${name === "volume" ? "m³" : "m²"}`;
+    }
+    case "molar_mass": {
+      const o = arg ? objects[arg] : undefined;
+      const mol = o?.type === "molecule" ? getMolecule(o.molecule) : undefined;
+      return mol ? `${molarMass(mol).toFixed(2)} g/mol` : undefined;
     }
     case "mass": {
       const o = arg ? objects[arg] : undefined;

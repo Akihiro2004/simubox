@@ -3,7 +3,7 @@
 import { RoundedBox } from "@react-three/drei";
 import { useEffect, useMemo } from "react";
 import { CanvasTexture, SRGBColorSpace } from "three";
-import { useSim } from "@/lib/store";
+import { noteElement, useSim } from "@/lib/store";
 import { cancelPlayback, execNow } from "@/lib/player";
 import { EMPTY_TABLE, PERIODIC_ELEMENTS, TABLE_SIZE, elementPoint, tableSelection, type PeriodicTableState } from "@/lib/periodic-table";
 
@@ -130,6 +130,7 @@ export function PeriodicTable({ x }: { x: number }) {
           return Math.abs(u - x) < TABLE_SIZE.cell / TABLE_SIZE.width / 2 && Math.abs(v - y) < TABLE_SIZE.cell / TABLE_SIZE.height / 2;
         });
         if (hit) {
+          noteElement(hit.number);
           cancelPlayback();
           const family = hit.group ? `Group ${hit.group}` : hit.series;
           execNow({ op: "show_periodic_table", elements: [hit.number], groups: [], periods: [], caption: `${hit.number} · ${hit.name} (${hit.symbol}) · Period ${hit.period} · ${family}`, focus: !focused });

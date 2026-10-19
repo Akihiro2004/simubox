@@ -3,7 +3,7 @@
 
 import { z } from "zod";
 import { ANIMATIONS, ASSET_IDS, CHARACTER_KINDS, LIMITS, PRIMITIVE_SHAPES, WORLD_IDS } from "../world/catalog";
-import { ELEMENT_SYMBOLS, MOLECULE_IDS } from "../engine/chemistry";
+import { COMPOUND_NAME, ELEMENT_SYMBOLS, MOLECULE_IDS } from "../engine/chemistry";
 import { PLANET_IDS } from "../engine/astro";
 import { PLACE_IDS } from "../engine/geo";
 import { FLUID_IDS, MATERIAL_IDS, SUBSTANCE_IDS } from "../engine/physics2";
@@ -14,6 +14,10 @@ import { PeriodicTableFields } from "../periodic-table";
 import { LIGHT_COLOR_IDS, OPTIC_KINDS, OPTIC_MATERIAL_IDS, OPTIC_PRESETS, SOURCE_KINDS, TABLE } from "../engine/optics";
 import { PLAN, SIGNAL_KIND_IDS, SIGNAL_LAYOUTS, WALL_MATERIALS } from "../engine/waves";
 import { MechanicsFields, MathFields } from "../experiments";
+import { BOARD_COLS, BOARD_ROWS, CIRCUIT_PRESET_IDS, LED_COLORS, PART_KINDS } from "../engine/circuit";
+import { MAGNET_ITEM_KINDS, MAGNET_MATERIAL_IDS, MAGNET_PRESET_IDS, TABLE_HALF, TEST_MATERIAL_IDS } from "../engine/magnet";
+import { EQUATION } from "../engine/reactions";
+import { GENOTYPE } from "../engine/genetics";
 
 export const SCHEMA_VERSION = 1;
 
@@ -27,6 +31,31 @@ const Physics = z.enum(["dynamic", "static", "none"]).describe("dynamic = falls/
 /** [x, z] on the optics table / the signal floor plan (the player keeps z inside the narrower edge). */
 const tableXZ = z.array(num(-TABLE.x, TABLE.x)).length(2);
 const planXZ = z.array(num(-PLAN.x, PLAN.x)).length(2);
+/** One item in the magnet lab; positions are real metres on the table (x ±0.25, z ±0.17, north is −z). */
+const MagnetFields = {
+  id: Id.optional(),
+  kind: z.enum(MAGNET_ITEM_KINDS),
+  x: num(-TABLE_HALF[0], TABLE_HALF[0]),
+  z: num(-TABLE_HALF[1], TABLE_HALF[1]),
+  angleDeg: num(-360, 360).optional().describe("N-pole direction, ° anticlockwise from +x"),
+  material: z.enum(MAGNET_MATERIAL_IDS).optional(),
+  current: num(-10, 10).optional().describe("A; wire + = up"),
+  turns: z.number().int().min(10).max(1000).optional(),
+  core: z.boolean().optional(),
+  test: z.enum(TEST_MATERIAL_IDS).optional(),
+};
+/** A grid point on the circuit board: [column 0..10, row 0..7]. */
+const GridPt = z.tuple([z.number().int().min(0).max(BOARD_COLS - 1), z.number().int().min(0).max(BOARD_ROWS - 1)]);
+/** One circuit part between two neighbouring grid points (a wire may run straight across several). */
+const PartFields = {
+  id: Id.optional(),
+  kind: z.enum(PART_KINDS),
+  a: GridPt,
+  b: GridPt,
+  value: num(-50, 1_000_000).optional().describe("V, Ω, bulb V, µF, fuse A, lux, °C"),
+  closed: z.boolean().optional(),
+  color: z.enum(LED_COLORS).optional(),
+};
 export const RIPPLE_SOURCES = ["point", "two_point", "plane"] as const;
 export const RIPPLE_BARRIERS = ["none", "wall", "gap", "double_slit", "reflector"] as const;
 
@@ -37,6 +66,7 @@ export const PLACEHOLDERS = [
   "current", "total_resistance", "power", "voltage",
   "wave_speed", "wave_period",
   "wind_speed",
+  "balanced_equation", "collision_fraction", "reaction_rate", "reaction_progress", "cycle_period", "prey_peak", "predator_peak", "final_population", "phenotype_ratio", "genotype_ratio", "offspring_counts", "isotonic_position",
   "torque_left", "torque_right", "balance_distance",
   "phase", "rms_speed", "temperature",
   "day", "season", "moon_phase", "moon_lit",
@@ -55,6 +85,15 @@ export const ARG_PLACEHOLDERS = {
   surface_area: "shape id",
   float_fraction: "object id",
   mass: "object id (its real mass in the physics engine)",
+  field_strength: "magnet-lab item id (e.g. a compass)",
+  field_direction: "magnet-lab item id",
+  magnet_force: "magnet id",
+  coil_field: "coil id",
+  part_current: "circuit part id",
+  part_voltage: "circuit part id",
+  part_power: "circuit part id",
+  part_resistance: "circuit part id",
+  molar_mass: "molecule object id",
   density: "object id",
   period: "planet id",
   planet_gravity: "planet id",
@@ -75,10 +114,15 @@ export const MODULE_FIELDS = {
   maths: MathFields.partial(),
   orbits: z.strictObject({ mode: z.enum(["solar_system", "earth_moon", "seasons"]), planets: z.array(z.enum(PLANET_IDS)).min(1).max(8), focus: z.enum([...PLANET_IDS, "sun", "moon"]).nullable(), daysPerSecond: num(0, 400), labels: z.boolean(), distances: z.partialRecord(z.enum(PLANET_IDS), num(0.1, 60)) }).partial(),
   fluid: z.strictObject({ fluid: z.enum(FLUID_IDS) }).partial(),
-  circuit: z.strictObject({ layout: z.enum(["series", "parallel"]), voltage: num(0, 24), bulbs: z.number().int().min(1).max(4), resistanceOhms: num(1, 100), switchClosed: z.boolean(), brokenBulbs: z.array(z.number().int().min(1).max(4)).max(4) }).partial(),
+  circuit: z.strictObject({ layout: z.enum(["series", "parallel"]), voltage: num(0, 24), bulbs: z.number().int().min(1).max(4), resistanceOhms: num(1, 100_000), switchClosed: z.boolean(), brokenBulbs: z.array(z.number().int().min(1).max(4)).max(4), flow: z.enum(["conventional", "electron"]), readings: z.boolean() }).partial(),
   wave: z.strictObject({ kind: z.enum(["transverse", "longitudinal"]), amplitude: num(0.05, 1.2), frequency: num(0.1, 4), wavelength: num(0.5, 6) }).partial(),
   lever: z.strictObject({ leftMassKg: num(0.1, 50), leftDistanceM: num(0.1, 2.4), rightMassKg: num(0.1, 50), rightDistanceM: num(0.1, 2.4) }).partial(),
+  magnet: z.strictObject({ lines: z.boolean(), filings: z.boolean(), compasses: z.boolean(), earth: z.boolean() }).partial(),
   particles: z.strictObject({ substance: z.enum(SUBSTANCE_IDS), temperatureC: num(-273, 3500) }).partial(),
+  reaction: z.strictObject({ equation: z.string().regex(EQUATION), temperatureC: num(-50, 500), particles: z.number().int().min(10).max(90), activationKJ: num(1, 60), catalyst: z.boolean() }).partial(),
+  population: z.strictObject({ model: z.enum(["logistic", "predator_prey"]), r: num(0.01, 5), K: num(1, 1e6), N0: num(1, 1e6), alpha: num(0.01, 5), beta: num(0.0001, 1), gamma: num(0.01, 5), delta: num(0.0001, 1), prey0: num(1, 1e5), predators0: num(1, 1e5), years: num(1, 200) }).partial(),
+  genetics: z.strictObject({ parent1: z.string().regex(GENOTYPE), parent2: z.string().regex(GENOTYPE), offspring: z.number().int().min(1).max(400), seed: z.number().int().min(1).max(1e6) }).partial(),
+  osmosis: z.strictObject({ mode: z.enum(["osmosis", "diffusion"]), soluteLeft: z.number().int().min(0).max(60), soluteRight: z.number().int().min(0).max(60) }).partial(),
   cell: z.strictObject({ kind: z.enum(CELL_KINDS), highlight: z.enum(Object.keys(ORGANELLES) as [string, ...string[]]).nullable() }).partial(),
   globe: z.strictObject({ view: z.enum(["globe", "map"]), spin: z.boolean(), focus: z.enum(PLACE_IDS).nullable() }).partial(),
   ripple: z.strictObject({ windSpeedMps: num(0, 20).nullable(), frequencyHz: num(0.3, 3), amplitude: num(0.004, 0.03), depthM: num(0.02, 0.5), source: z.enum(RIPPLE_SOURCES), separationM: num(0.1, 1.2), barrier: z.enum(RIPPLE_BARRIERS), gapWidthM: num(0.05, 1), barrierX: num(-1, 1.3), reflectorAngleDeg: num(-60, 60), shallow: z.boolean(), shallowDepthM: num(0.01, 0.2), sourceSpeed: num(0, 0.5), view: z.enum(["waves", "intensity"]) }).partial(),
@@ -260,7 +304,7 @@ export const Command = z.discriminatedUnion("op", [
     set: z
       .record(z.string(), z.unknown())
       .describe(
-        "only the fields to change. orbits: mode, planets, focus, daysPerSecond, labels, distances ({planet: AU} moves planets to new orbits, e.g. {earth: 30.07, neptune: 1} swaps them; {} puts every planet back). fluid: fluid. circuit: layout, voltage, bulbs, resistanceOhms, switchClosed, brokenBulbs (1-based bulb numbers that are blown; [] fixes them all). wave: kind, amplitude, frequency, wavelength. lever: leftMassKg, leftDistanceM, rightMassKg, rightDistanceM. particles: substance, temperatureC. cell: kind, highlight (part or null). globe: view, spin, focus (place id or null). ripple: frequencyHz, depthM, source, separationM, barrier, gapWidthM, barrierX, reflectorAngleDeg, shallow, shallowDepthM, sourceSpeed, view, amplitude. signal: kind, soundHz, layout (resets the walls), walls ([{id, from:[x,z], to:[x,z], material}] replaces all), allWalls (one material for every wall), source [x,z], device [x,z], view. optics: sourceKind (laser|ray_box|lamp|off), sourcePosition [x,z], angleDeg, color, rays, spread (ray_box width m / lamp fan degrees), aimAt (element id or null), medium (air|water), normals, object ({target: lens or curved mirror id, distanceM, heightM} or null), mixing ({red, green, blue} spotlights or null)",
+        "only the fields to change. orbits: mode, planets, focus, daysPerSecond, labels, distances ({planet: AU} moves planets to new orbits, e.g. {earth: 30.07, neptune: 1} swaps them; {} puts every planet back). fluid: fluid. circuit: layout, voltage, bulbs, resistanceOhms, switchClosed, brokenBulbs (1-based bulb numbers that are blown; [] fixes them all). wave: kind, amplitude, frequency, wavelength. lever: leftMassKg, leftDistanceM, rightMassKg, rightDistanceM. magnet: lines, filings, compasses (grid), earth. particles: substance, temperatureC. cell: kind, highlight (part or null). globe: view, spin, focus (place id or null). ripple: frequencyHz, depthM, source, separationM, barrier, gapWidthM, barrierX, reflectorAngleDeg, shallow, shallowDepthM, sourceSpeed, view, amplitude. signal: kind, soundHz, layout (resets the walls), walls ([{id, from:[x,z], to:[x,z], material}] replaces all), allWalls (one material for every wall), source [x,z], device [x,z], view. optics: sourceKind (laser|ray_box|lamp|off), sourcePosition [x,z], angleDeg, color, rays, spread (ray_box width m / lamp fan degrees), aimAt (element id or null), medium (air|water), normals, object ({target: lens or curved mirror id, distanceM, heightM} or null), mixing ({red, green, blue} spotlights or null)",
       ),
   }),
   z.object({
@@ -283,6 +327,13 @@ export const Command = z.discriminatedUnion("op", [
     resistanceOhms: num(1, 100).optional().describe("per bulb, default 10"),
     switchClosed: z.boolean().optional(),
   }),
+  z.object({ op: z.literal("show_magnets"), preset: z.enum(MAGNET_PRESET_IDS).optional(), items: z.array(z.object(MagnetFields)).max(30).optional() }),
+  z.object({ op: z.literal("place_magnet"), ...MagnetFields, id: Id }),
+  z.object({ op: z.literal("remove_magnet"), id: Id }),
+  z.object({ op: z.literal("show_circuit"), preset: z.enum(CIRCUIT_PRESET_IDS).optional(), parts: z.array(z.object(PartFields)).max(90).optional().describe("the whole board; replaces the preset") }),
+  z.object({ op: z.literal("place_part"), ...PartFields, id: Id }),
+  z.object({ op: z.literal("remove_part"), id: Id }),
+  z.object({ op: z.literal("set_part"), id: Id, value: num(-50, 1_000_000).optional(), closed: z.boolean().optional(), color: z.enum(LED_COLORS).optional(), broken: z.boolean().optional(), flip: z.boolean().optional().describe("swap its two ends") }),
   z.object({
     op: z.literal("show_wave"),
     kind: z.enum(["transverse", "longitudinal"]),
@@ -298,6 +349,10 @@ export const Command = z.discriminatedUnion("op", [
     rightDistanceM: num(0.1, 2.4),
   }),
   z.object({ op: z.literal("show_particles"), substance: z.enum(SUBSTANCE_IDS), temperatureC: num(-273, 3500) }),
+  z.object({ op: z.literal("show_reaction"), equation: z.string().regex(EQUATION).optional() }),
+  z.object({ op: z.literal("show_population"), model: z.enum(["logistic", "predator_prey"]) }),
+  z.object({ op: z.literal("show_genetics"), parent1: z.string().regex(GENOTYPE), parent2: z.string().regex(GENOTYPE) }),
+  z.object({ op: z.literal("show_osmosis"), mode: z.enum(["osmosis", "diffusion"]) }),
   z.object({ op: z.literal("show_cell"), kind: z.enum(CELL_KINDS), highlight: z.enum(Object.keys(ORGANELLES) as [string, ...string[]]).optional() }),
   z.object({ op: z.literal("show_globe"), view: z.enum(["globe", "map"]), spin: z.boolean().optional(), focus: z.enum(PLACE_IDS).optional() }),
   z.object({
@@ -364,7 +419,7 @@ export const Command = z.discriminatedUnion("op", [
     durationMs: num(0, 60000).optional().describe("0 or omitted = stays until hide_card or the next lesson"),
   }),
   z.object({ op: z.literal("hide_card"), id: Id.or(z.literal("all")) }),
-  z.object({ op: z.literal("build_molecule"), id: Id, molecule: z.enum(MOLECULE_IDS), position: Pos.optional() }),
+  z.object({ op: z.literal("build_molecule"), id: Id, molecule: z.enum(MOLECULE_IDS).optional(), compound: z.string().regex(COMPOUND_NAME).optional().describe("another real compound's name"), position: Pos.optional() }),
   z.object({ op: z.literal("build_atom"), id: Id, element: z.enum(ELEMENT_SYMBOLS), position: Pos.optional() }),
 ]);
 export type Command = z.infer<typeof Command>;
@@ -376,7 +431,7 @@ export const Step = z.object({
 });
 export type Step = z.infer<typeof Step>;
 
-export const CAPABILITIES = ["gravity", "projectile", "molecule", "atom", "orbits", "buoyancy", "graph", "geometry", "circuit", "waves", "lever", "matter", "cell", "globe", "concept", "none", "light", "signal", "mechanics", "maths"] as const;
+export const CAPABILITIES = ["gravity", "projectile", "molecule", "atom", "orbits", "buoyancy", "graph", "geometry", "circuit", "waves", "lever", "matter", "cell", "globe", "concept", "none", "light", "signal", "mechanics", "maths", "reaction", "population", "genetics", "osmosis", "magnetism"] as const;
 export type CapabilityId = (typeof CAPABILITIES)[number];
 
 export const ScenePlan = z.object({
@@ -424,6 +479,9 @@ export const SceneSnapshot = z.object({
     .max(60),
   characters: z.array(z.object({ id: z.string().max(32), kind: z.string().max(16), name: z.string().max(20) })).max(8),
   selected: z.string().max(32).nullable().optional(),
+  /** What the student last clicked, picked or changed in the app ("this" in a question). */
+  focus: z.object({ kind: z.string().max(24), label: z.string().max(120), detail: z.string().max(300).optional(), id: z.string().max(32).optional(), secondsAgo: z.number().min(0) }).optional(),
+  recentFocus: z.array(z.string().max(120)).max(4).optional(),
   /** Active science modules and their parameters (small, engine-defined). */
   modules: z.record(z.string().max(20), z.unknown()).optional(),
   /** Current restyle of the world, if any. */

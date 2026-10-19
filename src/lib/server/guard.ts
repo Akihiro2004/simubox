@@ -28,14 +28,19 @@ export function clientIp(req: Request): string {
 
 const projectId = (process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID);
 
-/** Verified Firebase uid from `Authorization: Bearer <idToken>`, or null for guests / bad tokens. */
+/**
+ * Verified Firebase uid from `Authorization: Bearer <idToken>`, or null for guests / bad tokens.
+ * The first check downloads Google's signing keys; if that is slow (it once
+ * held a question for ~a minute) the caller gets a guest answer after 2.5 s
+ * instead of waiting. The keys keep downloading and later checks are instant.
+ */
 export async function verifyUser(req: Request): Promise<string | null> {
   const h = req.headers.get("authorization");
   if (!h?.startsWith("Bearer ") || !projectId) return null;
   try {
     if (!getApps().length) initializeApp({ projectId });
-    const decoded = await getAuth().verifyIdToken(h.slice(7));
-    return decoded.uid;
+    const check = getAuth().verifyIdToken(h.slice(7)).then((d) => d.uid, () => null);
+    return await Promise.race([check, new Promise<null>((r) => setTimeout(() => r(null), 2500))]);
   } catch {
     return null;
   }

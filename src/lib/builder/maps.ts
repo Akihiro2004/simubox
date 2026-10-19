@@ -19,7 +19,7 @@ const appearance = { size, opacity: z.number().min(0).max(1), glow: z.boolean() 
 export const MapObject = z.discriminatedUnion("type", [
   base.extend({ type: z.literal("asset"), asset: z.enum(ASSET_IDS) }),
   base.extend({ type: z.literal("primitive"), shape: z.enum(PRIMITIVE_SHAPES), ...appearance }),
-  base.extend({ type: z.literal("molecule"), molecule: z.enum(MOLECULE_IDS) }),
+  base.extend({ type: z.literal("molecule"), molecule: z.union([z.enum(MOLECULE_IDS), z.string().regex(/^cid:d{1,10}$/)]) }),
   base.extend({ type: z.literal("atom"), element: z.enum(ELEMENT_SYMBOLS) }),
   base.extend({ type: z.literal("shape"), shape: z.enum(SHAPE_KINDS), ...appearance, wireframe: z.boolean(), material: z.enum(MATERIAL_IDS).optional(), morphMs: z.number().min(0).max(60000), sides: z.number().int().min(3).max(100).optional(), points: z.array(z.tuple([z.number().finite(), z.number().finite()])).max(100).optional(), path: z.array(Vec).max(100).optional() }),
 ]);

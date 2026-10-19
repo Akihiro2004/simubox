@@ -4,6 +4,7 @@
 // command at a time. A new plan (or reset) aborts the running one at once.
 
 import { Euler, Quaternion } from "three";
+import { create } from "zustand";
 import { ASSETS, GUIDE_ID, LIMITS, WORLDS, type Vec3 } from "./world/catalog";
 import { assetObject, type SceneObject } from "./world/scene";
 import { allSettled, emit, getBody, liveBodies, livePosition, markFresh, view, waitFor } from "./world/runtime";
@@ -11,11 +12,14 @@ import { fmt, PROJECTILE_LIMITS, toMetersPerSecond } from "./engine/projectile";
 import { fillPlaceholders, fillProse } from "./ssp/validate";
 import { MODULE_FIELDS, type Command, type ScenePlan, type Step } from "./ssp/schema";
 import { applyEnvironment } from "./environment";
-import { pickScene, projectileResult, useSim, type Explanation } from "./store";
+import { noteFocus, pickScene, projectileResult, useSim, type Explanation } from "./store";
 import { prefetchLine, speak, stopSpeaking, type VoiceRole } from "./tts";
-import { ALL_PLANETS, MODULE_DEFAULTS, OPTIC_SIZE, OPTICS_TABLE, RIPPLE_TANK, massFor, moduleValue, objectVolume, patchOptics, patchSignal, signalDefaults, type Modules } from "./modules";
+import { ALL_PLANETS, MODULE_DEFAULTS, circuitBoard, OPTIC_SIZE, OPTICS_TABLE, RIPPLE_TANK, massFor, moduleValue, objectVolume, patchOptics, patchSignal, signalDefaults, type Modules } from "./modules";
 import { MAX_OPTICS, TABLE, opticsPreset, sourcePosition, type OpticElement } from "./engine/optics";
 import { PLACES } from "./engine/geo";
+import { legacyBoard, placePart, presetBoard, type Part, type Pt } from "./engine/circuit";
+import { magnetPreset } from "./engine/magnet";
+import { loadCompound } from "./engine/chemistry";
 import type { ShapeKind } from "./engine/geometry";
 import { EMPTY_TABLE } from "./periodic-table";
 import { DEFAULT_MECHANICS, DEFAULT_MATH, MechanicsFields, MathFields, mathSetupError, type MathState } from "./experiments";
@@ -216,11 +220,19 @@ function setMaths(next: MathState) {
 }
 
 /** Molecules, atoms, particles and cells share the lab pedestal: one at a time. */
-function clearPedestal(keep: "chem" | "particles" | "cell" | "table") {
+function clearPedestal(keep: "chem" | "particles" | "cell" | "table" | "reaction" | "population" | "genetics" | "osmosis") {
   const s = st();
   if (keep !== "table" && s.camera.preset === "periodic_table") s.focus({ preset: "home" });
   if (keep !== "chem") for (const o of Object.values(s.objects)) if (o.type === "molecule" || o.type === "atom") s.removeObject(o.id);
-  setModules({ particles: keep === "particles" ? st().modules.particles : null, cell: keep === "cell" ? st().modules.cell : null });
+  const m = st().modules;
+  setModules({
+    particles: keep === "particles" ? m.particles : null,
+    cell: keep === "cell" ? m.cell : null,
+    reaction: keep === "reaction" ? m.reaction : null,
+    population: keep === "population" ? m.population : null,
+    genetics: keep === "genetics" ? m.genetics : null,
+    osmosis: keep === "osmosis" ? m.osmosis : null,
+  });
 }
 
 /**
@@ -251,6 +263,10 @@ export function clearOfScenery(pos: Vec3, size: Vec3): Vec3 {
   }
   return out;
 }
+
+/** The compound being fetched for the bench (drives the 3D loading animation and the panel). */
+export const useCompoundJob = create<{ job: { name: string; at: Vec3; error?: string } | null }>(() => ({ job: null }));
+let compoundSeq = 0;
 
 function defaultMoleculeSpot(): Vec3 {
   const s = st();
@@ -532,7 +548,8 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
         const m = s.modules;
         const v = c.value;
         if (c.name === "time_speed" && m.orbits) setModules({ orbits: { ...m.orbits, daysPerSecond: Math.min(Math.max(v, 0), 400) } });
-        if (c.name === "voltage" && m.circuit) setModules({ circuit: { ...m.circuit, voltage: Math.min(Math.max(v, 0), 24) } });
+        const board = circuitBoard(m.circuit);
+        if (c.name === "voltage" && board) setModules({ circuit: { ...board, parts: board.parts.map((p) => (p.kind === "battery" ? { ...p, value: Math.min(Math.max(v, 0.1), 24) } : p)) } });
         if ((c.name === "frequency" || c.name === "amplitude" || c.name === "wavelength") && m.wave) {
           const lim = { frequency: [0.1, 4], amplitude: [0.05, 1.2], wavelength: [0.5, 6] }[c.name];
           setModules({ wave: { ...m.wave, [c.name]: Math.min(Math.max(v, lim[0]), lim[1]) } });
@@ -643,12 +660,26 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
           setModules({ fluid: MODULE_FIELDS.fluid.parse(c.set).fluid ?? m.fluid ?? MODULE_DEFAULTS.fluid });
           wakeAll();
           break;
+        case "magnet":
+          setModules({ magnet: { ...(m.magnet ?? MODULE_DEFAULTS.magnet), ...MODULE_FIELDS.magnet.parse(c.set) } });
+          break;
         case "circuit": {
           const p = MODULE_FIELDS.circuit.parse(c.set);
-          const cur = m.circuit ?? MODULE_DEFAULTS.circuit;
-          const bulbs = p.bulbs ?? cur.bulbs;
-          const broken = p.brokenBulbs ? p.brokenBulbs.map((n) => n - 1) : cur.broken;
-          setModules({ circuit: { layout: p.layout ?? cur.layout, voltage: p.voltage ?? cur.voltage, bulbs, resistance: p.resistanceOhms ?? cur.resistance, closed: p.switchClosed ?? cur.closed, broken: broken.filter((i) => i < bulbs) } });
+          let board = circuitBoard(m.circuit) ?? MODULE_DEFAULTS.circuit;
+          // The classic series/parallel fields still work: a layout or bulb count rebuilds that loop.
+          if (p.layout || p.bulbs) {
+            const battery = board.parts.find((x) => x.kind === "battery");
+            board = { ...legacyBoard({ layout: p.layout ?? (board.parts.some((x) => x.kind === "bulb" && x.a[0] === x.b[0] && x.a[0] > 1) ? "parallel" : "series"), voltage: battery?.value ?? 6, bulbs: p.bulbs ?? Math.max(1, board.parts.filter((x) => x.kind === "bulb").length), closed: true, broken: [] }), flow: board.flow, readings: board.readings };
+          }
+          const bulbs = board.parts.filter((x) => x.kind === "bulb");
+          const parts = board.parts.map((x) => {
+            if (x.kind === "battery" && p.voltage !== undefined) return { ...x, value: Math.max(p.voltage, 0.1) };
+            if (x.kind === "switch" && p.switchClosed !== undefined) return { ...x, closed: p.switchClosed };
+            if (x.kind === "resistor" && p.resistanceOhms !== undefined) return { ...x, value: p.resistanceOhms };
+            if (x.kind === "bulb" && p.brokenBulbs) return { ...x, broken: p.brokenBulbs.includes(bulbs.indexOf(x) + 1) };
+            return x;
+          });
+          setModules({ circuit: { ...board, parts, flow: p.flow ?? board.flow, readings: p.readings ?? board.readings } });
           break;
         }
         case "wave":
@@ -665,6 +696,18 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
           break;
         case "cell":
           setModules({ cell: { ...(m.cell ?? MODULE_DEFAULTS.cell), ...MODULE_FIELDS.cell.parse(c.set) } });
+          break;
+        case "reaction":
+          setModules({ reaction: { ...(m.reaction ?? MODULE_DEFAULTS.reaction), ...MODULE_FIELDS.reaction.parse(c.set) } });
+          break;
+        case "population":
+          setModules({ population: { ...(m.population ?? MODULE_DEFAULTS.population), ...MODULE_FIELDS.population.parse(c.set) } });
+          break;
+        case "genetics":
+          setModules({ genetics: { ...(m.genetics ?? MODULE_DEFAULTS.genetics), ...MODULE_FIELDS.genetics.parse(c.set) } });
+          break;
+        case "osmosis":
+          setModules({ osmosis: { ...(m.osmosis ?? MODULE_DEFAULTS.osmosis), ...MODULE_FIELDS.osmosis.parse(c.set) } });
           break;
         case "globe":
           setModules({ globe: { ...(m.globe ?? MODULE_DEFAULTS.globe), ...MODULE_FIELDS.globe.parse(c.set) } });
@@ -740,10 +783,62 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       setModules({ plot: { functions: [], points: [], vectors: [] } });
       return;
     case "build_circuit":
-      setModules({ circuit: { layout: c.layout, voltage: c.voltage, bulbs: c.bulbs, resistance: c.resistanceOhms ?? 10, closed: c.switchClosed ?? true, broken: [] }, ripple: null });
+      setModules({ circuit: legacyBoard({ layout: c.layout, voltage: c.voltage, bulbs: c.bulbs, closed: c.switchClosed ?? true, broken: [] }), ripple: null, magnet: null });
       s.set({ capability: "circuit" });
       await sleep(600, signal);
       return;
+    case "show_magnets": {
+      const base = c.preset ? magnetPreset(c.preset) : { ...(s.modules.magnet ?? magnetPreset("bar_magnet")), items: [] };
+      const items = c.items ? c.items.map((it, k) => ({ ...it, id: it.id ?? `${it.kind}_${k + 1}`, angleDeg: it.angleDeg ?? 0 })) : base.items;
+      setModules({ magnet: { ...base, items }, circuit: null, ripple: null, wave: null, lever: null });
+      s.set({ capability: "magnetism" });
+      await sleep(600, signal);
+      return;
+    }
+    case "place_magnet": {
+      const lab = s.modules.magnet ?? { ...magnetPreset("bar_magnet"), items: [] };
+      const old = lab.items.find((i) => i.id === c.id);
+      const item = { ...old, ...c, angleDeg: c.angleDeg ?? old?.angleDeg ?? 0 };
+      setModules({ magnet: { ...lab, items: old ? lab.items.map((i) => (i.id === c.id ? item : i)) : [...lab.items, item].slice(-30) }, circuit: null, ripple: null });
+      s.set({ capability: "magnetism" });
+      await sleep(500, signal);
+      return;
+    }
+    case "remove_magnet": {
+      const lab = s.modules.magnet;
+      if (lab) setModules({ magnet: { ...lab, items: lab.items.filter((i) => i.id !== c.id) } });
+      await sleep(300, signal);
+      return;
+    }
+    case "show_circuit": {
+      const flow = circuitBoard(s.modules.circuit)?.flow ?? "conventional";
+      const board = c.parts ? { v: 2 as const, flow, readings: true, parts: c.parts.reduce<Part[]>((acc, p) => placePart(acc, { ...p, a: p.a as Pt, b: p.b as Pt }), []) } : presetBoard(c.preset ?? "series_bulbs", flow);
+      setModules({ circuit: board, ripple: null, wave: null, lever: null, magnet: null });
+      s.set({ capability: "circuit" });
+      await sleep(600, signal);
+      return;
+    }
+    case "place_part": {
+      const board = circuitBoard(s.modules.circuit) ?? presetBoard("empty");
+      setModules({ circuit: { ...board, parts: placePart(board.parts, { ...c, a: c.a as Pt, b: c.b as Pt }) }, ripple: null, magnet: null });
+      s.set({ capability: "circuit" });
+      await sleep(400, signal);
+      return;
+    }
+    case "remove_part": {
+      const board = circuitBoard(s.modules.circuit);
+      if (board) setModules({ circuit: { ...board, parts: board.parts.filter((p) => p.id !== c.id && !p.id.startsWith(`${c.id}_`)) } });
+      await sleep(300, signal);
+      return;
+    }
+    case "set_part": {
+      const board = circuitBoard(s.modules.circuit);
+      if (!board) return;
+      const parts = board.parts.map((p) => (p.id !== c.id ? p : { ...p, ...(c.value !== undefined ? { value: c.value } : {}), ...(c.closed !== undefined ? { closed: c.closed } : {}), ...(c.color ? { color: c.color } : {}), ...(c.broken !== undefined ? { broken: c.broken } : {}), ...(c.flip ? { a: p.b, b: p.a } : {}) }));
+      setModules({ circuit: { ...board, parts } });
+      await sleep(400, signal);
+      return;
+    }
     case "show_wave":
       setModules({ wave: { kind: c.kind, amplitude: c.amplitude, frequency: c.frequency, wavelength: c.wavelength }, ripple: null });
       s.set({ capability: "waves" });
@@ -826,8 +921,24 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       s.set({ capability: "matter" });
       await sleep(500, signal);
       return;
+    case "show_reaction":
+    case "show_population":
+    case "show_genetics":
+    case "show_osmosis": {
+      const key = c.op.slice(5) as "reaction" | "population" | "genetics" | "osmosis";
+      // Frame the bench: the reaction and Punnett boards stand tall, so step back further.
+      if (!s.modules[key]) s.focus(key === "reaction" ? { target: [0, 2.1, 0], distance: 7 } : key === "genetics" ? { target: [0, 2.1, 0], distance: 6.8 } : { target: [0, 1.6, 0], distance: 5.5 });
+      clearPedestal(key);
+      const cur = st().modules;
+      if (c.op === "show_reaction") setModules({ reaction: { ...(cur.reaction ?? MODULE_DEFAULTS.reaction), ...(c.equation ? { equation: c.equation } : {}) } });
+      else if (c.op === "show_population") setModules({ population: { ...(cur.population ?? MODULE_DEFAULTS.population), model: c.model } });
+      else if (c.op === "show_genetics") setModules({ genetics: { ...(cur.genetics ?? MODULE_DEFAULTS.genetics), parent1: c.parent1, parent2: c.parent2 } });
+      else setModules({ osmosis: { ...(cur.osmosis ?? MODULE_DEFAULTS.osmosis), mode: c.mode } });
+      s.set({ capability: key });
+      await sleep(600, signal);
+      return;
+    }
     case "show_cell":
-      if (!s.modules.cell) s.focus({ target: [0, 2, 0], distance: 8.5 });
       clearPedestal("cell");
       setModules({ cell: { kind: c.kind, highlight: c.highlight ?? null } });
       s.set({ capability: "cell" });
@@ -975,9 +1086,29 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       return;
     case "build_molecule":
     case "build_atom": {
+      // Any other compound: fetch its PubChem 3D model first (a few KB). Only the
+      // latest request lands, so repeated clicks while it loads can't stack copies.
+      let molecule = c.op === "build_molecule" ? c.molecule : undefined;
+      if (c.op === "build_molecule" && c.compound) {
+        const mine = ++compoundSeq;
+        useCompoundJob.setState({ job: { name: c.compound, at: (c.position as Vec3 | undefined) ?? defaultMoleculeSpot() } });
+        try {
+          molecule = (await loadCompound({ name: c.compound })).id;
+        } catch (e) {
+          if (mine === compoundSeq) useCompoundJob.setState({ job: { name: c.compound, at: useCompoundJob.getState().job?.at ?? defaultMoleculeSpot(), error: e instanceof Error ? e.message : "Couldn't load that compound." } });
+          return;
+        }
+        if (mine !== compoundSeq) return;
+        useCompoundJob.setState({ job: null });
+        if (signal.aborted) return;
+      } else {
+        // Anything else on the bench cancels a compound still loading.
+        compoundSeq++;
+        if (useCompoundJob.getState().job) useCompoundJob.setState({ job: null });
+      }
       clearPedestal("chem");
       const base = { id: c.id, position: (c.position as Vec3 | undefined) ?? defaultMoleculeSpot(), rotation: [0, 0, 0] as Vec3, scale: 1, physics: "none" as const, massKg: 1, bounciness: 0, drag: 0, visible: true, version: 0 };
-      s.upsertObject(c.op === "build_molecule" ? { ...base, type: "molecule", molecule: c.molecule } : { ...base, type: "atom", element: c.element });
+      s.upsertObject(c.op === "build_molecule" ? { ...base, type: "molecule", molecule: molecule! } : { ...base, type: "atom", element: c.element });
       s.set({ capability: c.op === "build_molecule" ? "molecule" : "atom" });
       await sleep(500, signal);
       return;
@@ -986,7 +1117,13 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
 }
 
 /** Run a single command from the UI (sliders, buttons) outside any plan. */
+/** Runs a command from the student's own panel (never a lesson), so it is remembered as what they did. */
 export function execNow(c: Command) {
+  const { op, ...args } = c;
+  const params = JSON.stringify(args).slice(0, 110);
+  // A click that already said exactly what was picked (an element, a part) keeps that richer note.
+  const last = useSim.getState().attention;
+  if (!last || Date.now() - last.at > 400) noteFocus({ kind: "action", label: `Used the panel: ${op}${params === "{}" ? "" : ` ${params}`}` });
   void exec(c, new AbortController().signal);
 }
 
