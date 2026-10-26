@@ -13,6 +13,7 @@ import type { Order } from "@/lib/builder/economy";
 import { formatUsd, PACK_BY_ID, PACKS, PRICES, SIGNUP_BONUS } from "@/lib/credits";
 import { DISCOVERY_REWARD } from "@/lib/builder/catalog";
 import { initFirebase, signIn, useAuth } from "@/lib/firebase";
+import { LegalLinks } from "./legal-links";
 
 /** The account once sign-in has settled, refetched when the student signs in or out. */
 function useAccount(): { account: AccountView | null; loading: boolean } {
@@ -81,13 +82,15 @@ export function CreditsStore() {
   const { account, loading } = useAccount();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const signedIn = account?.signedIn ?? false;
+  const user = useAuth((a) => a.user);
+  const signedIn = Boolean(user) || (account?.signedIn ?? false);
 
   const buy = async (pack: string) => {
     setBusy(pack);
     setError(null);
     const r = await creditsApi({ action: "order", pack });
-    if (r.order) router.push(`/wallet/checkout?order=${r.order.id}`);
+    if (r.checkoutUrl) window.location.assign(r.checkoutUrl);
+    else if (r.order) router.push(`/wallet/checkout?order=${r.order.id}`);
     else {
       setError(r.code === "sign_in" ? "Sign in first to buy credits." : r.error ?? "Couldn't start the checkout.");
       setBusy(null);
@@ -186,8 +189,13 @@ export function CreditsStore() {
         </section>
       </div>
       <p className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-3">
-        <ShieldCheck size={15} /> Payments run in sandbox mode for this demo: no real money is charged.
+        <ShieldCheck size={15} />
+        {account?.payments === "creem" ? "Secure payment by Creem, our merchant of record. Card details never reach SimuBox." : "Payments run in sandbox mode for this demo: no real money is charged."}
       </p>
+      <p className="text-[13px] font-semibold text-ink-3">
+        One-time payments in US dollars, no subscription. By buying you agree to the <Link href="/terms" className="font-bold underline">Terms</Link>; unused packs can be refunded within 14 days.
+      </p>
+      <LegalLinks className="!justify-start" />
     </Shell>
   );
 }
@@ -260,6 +268,8 @@ function Checkout({ orderId }: { orderId: string }) {
     else setError(r.error ?? "The payment didn't go through.");
   };
 
+  if (!loading && order?.checkout && !done) return <Confirming orderId={orderId} />;
+
   if (loading) {
     return (
       <Shell back="/wallet" backLabel="Back to credits">
@@ -303,7 +313,7 @@ function Checkout({ orderId }: { orderId: string }) {
               ["Receipt", done.id],
               ["Pack", pack.name],
               ["Paid", formatUsd(done.price)],
-              ["Method", done.method === "card" ? `Card ending ${done.last4}` : done.method === "qris" ? "QR payment" : "E-wallet"],
+              ["Method", done.method === "creem" ? "Paid via Creem" : done.method === "card" ? `Card ending ${done.last4}` : done.method === "qris" ? "QR payment" : "E-wallet"],
               ["New balance", `${account?.credits ?? "…"} credits`],
             ].map(([k, v]) => (
               <div key={k} className="flex justify-between gap-4">
@@ -459,6 +469,38 @@ function Checkout({ orderId }: { orderId: string }) {
           </section>
         </div>
       )}
+    </Shell>
+  );
+}
+
+/** Back from Creem's checkout: asks the server to confirm the payment until it lands (the webhook may beat it). */
+function Confirming({ orderId }: { orderId: string }) {
+  const [waited, setWaited] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    let tries = 0;
+    const tick = async () => {
+      const r = await creditsApi({ action: "confirm", order: orderId });
+      if (!alive) return;
+      applyAccount(r.account);
+      if (r.order?.status === "paid") return;
+      if (++tries === 10) setWaited(true);
+      if (tries < 60) setTimeout(() => void tick(), 3000);
+    };
+    void tick();
+    return () => {
+      alive = false;
+    };
+  }, [orderId]);
+  return (
+    <Shell back="/wallet" backLabel="Back to credits">
+      <section className={`${card} mx-auto max-w-[520px] text-center`} aria-live="polite">
+        <Loader2 size={34} className="mx-auto mb-3 animate-spin" />
+        <h1 className="text-[24px] font-extrabold">Confirming your payment…</h1>
+        <p className="text-[15px] font-semibold text-ink-2">
+          {waited ? "This is taking longer than usual. If you paid, your credits will appear here automatically; you can close this page." : "This takes a few seconds after you pay on Creem."}
+        </p>
+      </section>
     </Shell>
   );
 }

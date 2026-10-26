@@ -24,6 +24,7 @@ import { useSim } from "@/lib/store";
 import { useMotion } from "@/lib/useMotion";
 import { spring as springs } from "@/lib/motion";
 import { LIMITS } from "@/lib/world/catalog";
+import { LegalLinks } from "./legal-links";
 
 export type HookConfig = { mode: "projectile"; angleDeg: number; speed: number } | { mode: "gravity"; g: number } | { mode: "molecule"; formula: MoleculeId };
 
@@ -431,15 +432,7 @@ export default function LandingPage() {
         <CardHead label={`${WORLD_ITEMS.length} worlds`} dot="var(--accent)" />
         <h2 className="text-[22px] font-extrabold leading-tight">Pick from {WORLD_ITEMS.length} little worlds.</h2>
         <p className="mt-1.5 text-[15px] font-semibold leading-relaxed text-ink-2">Scroll to spin through them and tap one to jump in. Or just ask, and Simu picks the right one for you.</p>
-        <div className="mt-4 flex items-center justify-center gap-3 text-[12px] font-semibold text-ink-3">
-          <Link href="/credits" className="hover:text-ink">
-            About
-          </Link>
-          <span>·</span>
-          <Link href="/privacy" className="hover:text-ink">
-            Privacy
-          </Link>
-        </div>
+        <LegalLinks className="mt-4" />
       </>
     ),
   };
@@ -466,6 +459,9 @@ export default function LandingPage() {
         </Link>
 
         <div className="relative flex items-center gap-1.5 sm:gap-2">
+          <Link href="/wallet" className="liquid btn relative inline-flex h-10 items-center rounded-full px-3.5 text-[13px] font-bold text-ink">
+            Pricing
+          </Link>
           {user ? (
             <>
               <span className="liquid relative hidden items-center gap-2 rounded-full py-1 pl-1 pr-3 lg:flex" title={user.email ?? undefined}>

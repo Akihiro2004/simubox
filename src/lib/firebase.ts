@@ -39,6 +39,9 @@ export function initFirebase(): Promise<void> {
       current = u;
       useAuth.setState({ ready: true, user: u ? { uid: u.uid, name: u.displayName, photo: u.photoURL, email: u.email } : null });
     });
+    // Resolve only once a saved sign-in is restored, so API calls made right
+    // after this carry the token instead of going out as a guest's.
+    await auth.authStateReady();
   })().catch((e) => {
     useAuth.setState({ ready: true, error: `Sign-in unavailable: ${String(e).slice(0, 120)}` });
   });

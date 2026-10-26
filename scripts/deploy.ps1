@@ -76,6 +76,21 @@ if ($speechify) {
   Set-Secret "speechify-api-key" $speechify
   $secrets += "SPEECHIFY_API_KEY=speechify-api-key:latest"
 }
+# Optional: Creem real payments (see .env.example). Test and live keys need
+# their own CREEM_PRODUCTS (npm run creem:setup with each key).
+$creemKey = Get-Key "CREEM_API_KEY"
+if ($creemKey) {
+  $creemProducts = Get-Key "CREEM_PRODUCTS"
+  if (-not $creemProducts) { throw "CREEM_API_KEY is set but CREEM_PRODUCTS is empty: run npm run creem:setup first." }
+  Set-Secret "creem-api-key" $creemKey
+  $secrets += "CREEM_API_KEY=creem-api-key:latest"
+  $creemHook = Get-Key "CREEM_WEBHOOK_SECRET"
+  if ($creemHook) {
+    Set-Secret "creem-webhook-secret" $creemHook
+    $secrets += "CREEM_WEBHOOK_SECRET=creem-webhook-secret:latest"
+  }
+  $envVars += ",CREEM_PRODUCTS=$creemProducts"
+}
 $secretArgs = if ($secrets.Count) { @("--set-secrets", ($secrets -join ",")) } else { @() }
 if ($FirebaseApiKey) {
   $fbProject = if ($FirebaseProjectId) { $FirebaseProjectId } else { $Project }
@@ -100,3 +115,4 @@ gcloud run deploy $Service `
 $url = gcloud run services describe $Service --region $Region --format="value(status.url)"
 Write-Host "Deployed: $url"
 Write-Host "Health:   $url/api/health"
+if ($creemKey) { Write-Host "Creem webhook URL (Creem dashboard > Developers > Webhooks): $url/api/creem/webhook" }

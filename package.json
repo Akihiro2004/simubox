@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "creem:setup": "node --experimental-strip-types --no-warnings scripts/creem-setup.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

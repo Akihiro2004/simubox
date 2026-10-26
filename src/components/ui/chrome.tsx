@@ -2,6 +2,7 @@
 
 import { Bed, Bookmark, Clock, Coins, FlaskConical, Globe, HeartPulse, Lightbulb, LogIn, LogOut, Menu, MessageCircleQuestion, MessageSquare, Orbit, Plus, Settings, Shapes, Sigma, Trash, TreePine, Trophy, User, Droplets, Volume2, VolumeX, Wrench, X } from "lucide-react";
 import Link from "next/link";
+import { SUPPORT_EMAIL } from "@/components/legal-links";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { useSim } from "@/lib/store";
@@ -357,16 +358,25 @@ function MenuContent() {
       <div className="group-rows mt-4 overflow-hidden">
         <MenuRow icon={<MessageSquare size={16} />} title="Conversation" hint="Everything you asked and Simu said" onClick={() => set({ transcriptOpen: true, menuOpen: false })} />
       </div>
-      <div className="flex gap-4 px-2 pb-1 pt-3 text-[13px] font-semibold text-ink-3">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 px-2 pb-1 pt-3 text-[13px] font-semibold text-ink-3">
         <Link href="/" className="hover:text-ink" onClick={close}>
           Home
+        </Link>
+        <Link href="/wallet" className="hover:text-ink">
+          Pricing
         </Link>
         <Link href="/credits" className="hover:text-ink">
           About and credits
         </Link>
+        <Link href="/terms" className="hover:text-ink">
+          Terms
+        </Link>
         <Link href="/privacy" className="hover:text-ink">
           Privacy
         </Link>
+        <a href={`mailto:${SUPPORT_EMAIL}`} className="hover:text-ink">
+          Support
+        </a>
       </div>
       </Section>
      </motion.div>

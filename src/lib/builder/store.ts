@@ -6,7 +6,7 @@ import { idToken, initFirebase } from "../firebase";
 import type { AssetId } from "../world/catalog";
 
 /** The server's view of this learner's account (see /api/credits). */
-export interface AccountView extends Wallet { history: LedgerEntry[]; orders: Order[]; signedIn: boolean }
+export interface AccountView extends Wallet { history: LedgerEntry[]; orders: Order[]; signedIn: boolean; payments?: "creem" | "sandbox" }
 
 interface BuilderState {
   open: boolean;
@@ -22,7 +22,7 @@ interface BuilderState {
   answer: (id: AssetId, choice: number) => Promise<{ correct: boolean; reward: number }>;
 }
 
-type Reply = { error?: string; code?: string; correct?: boolean; reward?: number; order?: Order; account?: AccountView };
+type Reply = { error?: string; code?: string; correct?: boolean; reward?: number; order?: Order; checkoutUrl?: string; account?: AccountView };
 
 export async function creditsApi(body?: object): Promise<Reply> {
   await initFirebase();

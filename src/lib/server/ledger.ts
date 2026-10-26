@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getFirestore } from "firebase-admin/firestore";
-import { freshAccount, readAccount, type Account } from "../builder/economy";
+import { freshAccount, readAccount, settleOrder, type Account } from "../builder/economy";
 import { GUEST_CREDITS, SIGNUP_BONUS } from "../credits";
 import { adminApp, clientIp, signInConfigured, verifyUser } from "./guard";
 
@@ -71,6 +71,16 @@ export function transact<T>(id: string, change: Change<T>): Promise<T> {
 }
 
 export const getAccount = (id: string) => transact(id, (a) => ({ account: a, out: a }));
+
+/** Credits an order the real gateway confirmed as paid; repeat calls change nothing. */
+export async function grantPaidOrder(accountId: string, orderId: string) {
+  const r = await transact(accountId, (acc) => {
+    const s = settleOrder(acc, orderId, { ok: true, method: "creem" });
+    return { account: s.account, out: s };
+  });
+  if (r.order) console.log(JSON.stringify({ event: "payment", sandbox: false, status: r.order.status, pack: r.order.pack, price: r.order.price }));
+  return r;
+}
 
 export const newOrderId = () => `ord_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
 
