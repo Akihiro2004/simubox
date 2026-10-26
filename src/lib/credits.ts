@@ -68,3 +68,19 @@ export function margin(kind: PriceKind, pack: CreditPack, at: "typical" | "worst
 export function formatUsd(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
+
+/** A Creem discount code as the wallet shows it. Fixed amounts are in cents, as Creem stores them. */
+export interface Discount {
+  code: string;
+  type: "percentage" | "fixed";
+  percentage?: number;
+  amount?: number;
+  /** Pack ids it applies to. */
+  packs: string[];
+}
+
+/** Price in cents after a discount (before any tax the checkout adds). */
+export function discountedPrice(price: number, d: Pick<Discount, "type" | "percentage" | "amount">): number {
+  const off = d.type === "percentage" ? Math.round((price * (d.percentage ?? 0)) / 100) : (d.amount ?? 0);
+  return Math.max(0, price - off);
+}

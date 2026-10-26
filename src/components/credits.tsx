@@ -4,13 +4,13 @@
 // (/wallet/checkout). The checkout behaves like a payment gateway in test
 // mode: test card numbers decide the outcome and no money ever moves.
 
-import { ArrowLeft, Check, Coins, CreditCard, Loader2, Lock, QrCode, ShieldCheck, Smartphone } from "lucide-react";
+import { ArrowLeft, Check, Coins, CreditCard, Loader2, Lock, QrCode, ShieldCheck, Smartphone, Tag } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { applyAccount, creditsApi, useBuilder, type AccountView } from "@/lib/builder/store";
 import type { Order } from "@/lib/builder/economy";
-import { formatUsd, PACK_BY_ID, PACKS, PRICES, SIGNUP_BONUS } from "@/lib/credits";
+import { discountedPrice, formatUsd, PACK_BY_ID, PACKS, PRICES, SIGNUP_BONUS, type Discount } from "@/lib/credits";
 import { DISCOVERY_REWARD } from "@/lib/builder/catalog";
 import { initFirebase, signIn, useAuth } from "@/lib/firebase";
 import { LegalLinks } from "./legal-links";
@@ -56,6 +56,67 @@ function Shell({ children, back = "/app", backLabel = "Back to SimuBox" }: { chi
   );
 }
 
+/** A Creem discount code: checked on the server, then shown on the packs it takes money off. */
+function DiscountBox({ discount, onChange }: { discount: Discount | null; onChange: (d: Discount | null) => void }) {
+  const [code, setCode] = useState("");
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const apply = async () => {
+    setChecking(true);
+    setError(null);
+    const r = await creditsApi({ action: "discount", code });
+    setChecking(false);
+    if (r.discount) onChange(r.discount);
+    else setError(r.code === "sign_in" ? "Sign in first to use a discount code." : r.error ?? "That discount code isn't valid.");
+  };
+  if (discount) {
+    const off = discount.type === "percentage" ? `${discount.percentage}% off` : `${formatUsd(discount.amount ?? 0)} off`;
+    const which = discount.packs.length === PACKS.length ? "every pack" : discount.packs.map((p) => PACK_BY_ID[p]?.name ?? p).join(", ");
+    return (
+      <section className={`${card} flex flex-wrap items-center justify-between gap-3 !py-4`} aria-live="polite">
+        <p className="flex items-center gap-2 text-[15px] font-bold">
+          <Tag size={17} className="text-[var(--dot-question)]" />
+          <span>
+            <span className="font-extrabold">{discount.code}</span> applied: {off} {which}
+          </span>
+        </p>
+        <button className="btn text-[14px] font-bold text-ink-2 underline" onClick={() => onChange(null)}>
+          Remove
+        </button>
+      </section>
+    );
+  }
+  return (
+    <form
+      className={`${card} flex flex-wrap items-center gap-3 !py-4`}
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (code && !checking) void apply();
+      }}
+    >
+      <label className="flex min-w-[220px] flex-1 items-center gap-2">
+        <Tag size={17} className="shrink-0 text-ink-3" />
+        <span className="sr-only">Discount code</span>
+        <input
+          className="h-11 w-full rounded-[14px] border border-[var(--hairline)] bg-white/80 px-4 font-mono text-[16px] font-bold uppercase outline-none focus:border-[var(--dot-info)]"
+          placeholder="Discount code"
+          autoComplete="off"
+          value={code}
+          onChange={(e) => setCode(e.target.value.replace(/[^a-z0-9]/gi, "").toUpperCase().slice(0, 14))}
+        />
+      </label>
+      <button type="submit" disabled={!code || checking} className="btn btn-ink flex h-11 items-center gap-2 rounded-full px-5 text-[15px] font-extrabold">
+        {checking ? <Loader2 size={16} className="animate-spin" /> : "Apply"}
+      </button>
+      {error && (
+        <p role="alert" className="w-full text-[14px] font-bold text-[var(--dot-warning)]">
+          {error}
+        </p>
+      )}
+    </form>
+  );
+}
+
 function SignInCard() {
   const available = useAuth((a) => a.available);
   const error = useAuth((a) => a.error);
@@ -89,11 +150,13 @@ export function CreditsStore() {
   const [error, setError] = useState<string | null>(null);
   const user = useAuth((a) => a.user);
   const signedIn = Boolean(user) || (account?.signedIn ?? false);
+  const [discount, setDiscount] = useState<Discount | null>(null);
+  const priceOf = (p: (typeof PACKS)[number]) => (discount?.packs.includes(p.id) ? discountedPrice(p.price, discount) : p.price);
 
   const buy = async (pack: string) => {
     setBusy(pack);
     setError(null);
-    const r = await creditsApi({ action: "order", pack });
+    const r = await creditsApi({ action: "order", pack, ...(discount?.packs.includes(pack) ? { discount: discount.code } : {}) });
     if (r.checkoutUrl) window.location.assign(r.checkoutUrl);
     else if (r.order) router.push(`/wallet/checkout?order=${r.order.id}`);
     else {
@@ -129,10 +192,12 @@ export function CreditsStore() {
         </p>
       )}
       {!loading && !signedIn && <SignInCard />}
+      {account?.payments === "creem" && <DiscountBox discount={discount} onChange={setDiscount} />}
 
       <section aria-label="Credit packs" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {PACKS.map((p) => {
           const popular = p.id === "explorer";
+          const price = priceOf(p);
           return (
             <article key={p.id} className={`${card} relative flex flex-col gap-3 ${popular ? "ring-2 ring-[var(--accent)]" : ""}`}>
               {popular && <span className="absolute -top-3 left-5 rounded-full bg-[var(--accent)] px-3 py-0.5 text-[12px] font-extrabold">Most popular</span>}
@@ -142,14 +207,22 @@ export function CreditsStore() {
                 <span className="text-[15px] font-bold text-ink-2">credits</span>
               </p>
               <p className="text-[14px] font-semibold text-ink-2">{p.note}</p>
-              <p className="text-[14px] font-semibold text-ink-3">{formatUsd(Math.round((p.price / p.credits) * PRICES.lesson))} per lesson</p>
+              <p className="text-[14px] font-semibold text-ink-3">{formatUsd(Math.round((price / p.credits) * PRICES.lesson))} per lesson</p>
               <button
                 disabled={!signedIn || busy !== null}
                 className={`btn ${popular ? "btn-accent" : "btn-ink"} mt-auto flex h-11 items-center justify-center gap-2 rounded-full text-[16px] font-extrabold`}
                 onClick={() => void buy(p.id)}
-                aria-label={`Buy ${p.name}: ${p.credits} credits for ${formatUsd(p.price)}`}
+                aria-label={`Buy ${p.name}: ${p.credits} credits for ${formatUsd(price)}`}
               >
-                {busy === p.id ? <Loader2 size={18} className="animate-spin" /> : formatUsd(p.price)}
+                {busy === p.id ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : price < p.price ? (
+                  <>
+                    <s className="text-[14px] font-bold opacity-60">{formatUsd(p.price)}</s> {formatUsd(price)}
+                  </>
+                ) : (
+                  formatUsd(p.price)
+                )}
               </button>
             </article>
           );
@@ -322,6 +395,7 @@ function Checkout({ orderId }: { orderId: string }) {
             {[
               ["Receipt", done.id],
               ["Pack", pack.name],
+              ...(done.discount ? [["Discount code", done.discount]] : []),
               ["Paid", formatUsd(done.price)],
               ["Method", done.method === "creem" ? "Paid via Creem" : done.method === "card" ? `Card ending ${done.last4}` : done.method === "qris" ? "QR payment" : "E-wallet"],
               ["New balance", `${account?.credits ?? "…"} credits`],

@@ -12,7 +12,7 @@ export default function Terms() {
   return (
     <LegalPage title="Terms of Service" updated="26 October 2026">
       <p>
-        These terms cover your use of SimuBox (simubox.cloud.run), an online science-learning app. SimuBox is run by Darrien Rafael Wijaya, an individual based in Indonesia (&quot;we&quot;). By using
+        These terms cover your use of SimuBox (simubox.neuraspheres.com, also available at simubox.cloud.run), an online science-learning app. SimuBox is run by Darrien Rafael Wijaya, an individual based in Indonesia (&quot;we&quot;). By using
         SimuBox or buying credits you agree to these terms.
       </p>
 

@@ -8,7 +8,7 @@ import type { AssetId } from "../world/catalog";
 
 export interface Wallet { credits: number; owned: AssetId[]; earned: AssetId[] }
 export interface LedgerEntry { at: number; amount: number; reason: string }
-export interface Order { id: string; pack: string; credits: number; price: number; status: "pending" | "paid" | "failed"; createdAt: number; paidAt?: number; method?: string; last4?: string; failure?: string; checkout?: string }
+export interface Order { id: string; pack: string; credits: number; price: number; status: "pending" | "paid" | "failed"; createdAt: number; paidAt?: number; method?: string; last4?: string; failure?: string; checkout?: string; discount?: string }
 export interface Account extends Wallet { history: LedgerEntry[]; orders: Order[] }
 
 const MAX_HISTORY = 30;
@@ -24,7 +24,7 @@ const AccountData = z.object({
   owned: z.array(asset).max(DISCOVERIES.length),
   earned: z.array(asset).max(DISCOVERIES.length),
   history: z.array(z.object({ at: z.number(), amount: z.number().int(), reason: z.string().max(80) })).max(MAX_HISTORY).default([]),
-  orders: z.array(z.object({ id: z.string().max(40), pack: z.string().max(20), credits: z.number().int(), price: z.number().int(), status: z.enum(["pending", "paid", "failed"]), createdAt: z.number(), paidAt: z.number().optional(), method: z.string().max(20).optional(), last4: z.string().max(4).optional(), failure: z.string().max(80).optional(), checkout: z.string().max(80).optional() })).max(MAX_ORDERS).default([]),
+  orders: z.array(z.object({ id: z.string().max(40), pack: z.string().max(20), credits: z.number().int(), price: z.number().int(), status: z.enum(["pending", "paid", "failed"]), createdAt: z.number(), paidAt: z.number().optional(), method: z.string().max(20).optional(), last4: z.string().max(4).optional(), failure: z.string().max(80).optional(), checkout: z.string().max(80).optional(), discount: z.string().max(14).optional() })).max(MAX_ORDERS).default([]),
 });
 
 /** A stored account, or null when it is missing or corrupt. */

@@ -2,7 +2,8 @@ import { z } from "zod";
 import { answerDiscovery, createOrder, settleOrder, unlock, type Account, type Order } from "@/lib/builder/economy";
 import { DISCOVERIES } from "@/lib/builder/catalog";
 import { clientIp, rateLimit } from "@/lib/server/guard";
-import { checkoutPaid, createCheckout, creemEnabled, creemProducts, getCheckout, siteUrl } from "@/lib/server/creem";
+import { discountedPrice, type Discount } from "@/lib/credits";
+import { checkoutPaid, createCheckout, creemEnabled, creemProducts, discountPacks, getCheckout, getDiscount, siteUrl } from "@/lib/server/creem";
 import { getAccount, grantPaidOrder, newOrderId, sandboxCharge, transact, whoIs, type Who, orStoreDown } from "@/lib/server/ledger";
 import type { AssetId } from "@/lib/world/catalog";
 
@@ -10,7 +11,8 @@ const assetIds = DISCOVERIES.map((d) => d.asset) as [AssetId, ...AssetId[]];
 const Action = z.discriminatedUnion("action", [
   z.object({ action: z.literal("unlock"), asset: z.enum(assetIds) }),
   z.object({ action: z.literal("discovery"), asset: z.enum(assetIds), choice: z.number().int().min(0).max(9) }),
-  z.object({ action: z.literal("order"), pack: z.string().max(20) }),
+  z.object({ action: z.literal("order"), pack: z.string().max(20), discount: z.string().regex(/^[A-Za-z0-9]{1,14}$/).optional() }),
+  z.object({ action: z.literal("discount"), code: z.string().regex(/^[A-Za-z0-9]{1,14}$/) }),
   z.object({
     action: z.literal("pay"),
     order: z.string().max(40),
@@ -49,7 +51,9 @@ async function post(req: Request) {
   if (!who.signedIn && a.action !== "discovery") return Response.json({ error: "Sign in to unlock items or buy credits.", code: "sign_in" }, { status: 401 });
 
   if (a.action === "pay" && creemEnabled) return Response.json({ error: "Pay on the secure checkout page." }, { status: 400 });
-  if (a.action === "order" && creemEnabled) return creemOrder(req, who, a.pack);
+  if (a.action === "discount") return checkDiscount(a.code);
+  if (a.action === "order" && creemEnabled) return creemOrder(req, who, a.pack, a.discount);
+  if (a.action === "order" && a.discount) return Response.json({ error: "Discount codes work at the secure checkout, which isn't set up here." }, { status: 400 });
   if (a.action === "confirm") return confirm(who, a.order);
 
   const step = (account: Account): { account: Account; out: { error?: string; correct?: boolean; reward?: number; order?: Order } } => {
@@ -85,13 +89,47 @@ async function post(req: Request) {
   return Response.json({ ...out, account: view(account, who) }, { status });
 }
 
+/** A Creem discount code, as the wallet shows it, or why it can't be used. */
+async function lookupDiscount(code: string): Promise<{ discount: Discount } | { error: string }> {
+  if (!creemEnabled) return { error: "Discount codes work at the secure checkout, which isn't set up here." };
+  const d = await getDiscount(code.toUpperCase());
+  const r = discountPacks(d, creemProducts());
+  if ("error" in r || !d) return { error: "error" in r ? r.error : "That discount code isn't valid." };
+  return { discount: { code: d.code, type: d.type, percentage: d.percentage, amount: d.amount, packs: r.packs } };
+}
+
+async function checkDiscount(code: string) {
+  try {
+    const r = await lookupDiscount(code);
+    return Response.json(r, { status: "error" in r ? 400 : 200 });
+  } catch (e) {
+    console.error(JSON.stringify({ event: "creem_error", message: String(e).slice(0, 300) }));
+    return Response.json({ error: "Couldn't check that code. Please try again." }, { status: 502 });
+  }
+}
+
 /** Starts a Creem hosted checkout for a pack; credits arrive once Creem confirms payment. */
-async function creemOrder(req: Request, who: Who, packId: string) {
+async function creemOrder(req: Request, who: Who, packId: string, code?: string) {
   const product = creemProducts()[packId];
   if (!product) return Response.json({ error: "This pack isn't on sale yet." }, { status: 503 });
+  let discount: Discount | undefined;
+  if (code) {
+    try {
+      const r = await lookupDiscount(code);
+      if ("error" in r) return Response.json(r, { status: 400 });
+      if (!r.discount.packs.includes(packId)) return Response.json({ error: "That discount code doesn't apply to this pack." }, { status: 400 });
+      discount = r.discount;
+    } catch (e) {
+      console.error(JSON.stringify({ event: "creem_error", message: String(e).slice(0, 300) }));
+      return Response.json({ error: "Couldn't check that code. Please try again." }, { status: 502 });
+    }
+  }
   const { order, error } = await transact(who.id, (acc) => {
     const r = createOrder(acc, packId, newOrderId());
-    return { account: r.account, out: r };
+    if (!r.order || !discount) return { account: r.account, out: { order: r.order, error: r.error } };
+    // The order keeps what the buyer pays before tax, and which code took money off.
+    const o = { ...r.order, price: discountedPrice(r.order.price, discount), discount: discount.code };
+    return { account: { ...r.account, orders: r.account.orders.map((x) => (x.id === o.id ? o : x)) }, out: { order: o as Order | undefined, error: undefined as string | undefined } };
   });
   if (!order) return Response.json({ error }, { status: 400 });
   try {
@@ -100,6 +138,7 @@ async function creemOrder(req: Request, who: Who, packId: string) {
       request_id: order.id,
       success_url: `${siteUrl(req)}/wallet/checkout?order=${order.id}`,
       metadata: { account: who.id, order: order.id },
+      ...(discount ? { discount_code: discount.code } : {}),
     });
     if (!checkout.checkout_url) throw new Error("Creem returned no checkout link");
     const account = await transact(who.id, (acc) => {

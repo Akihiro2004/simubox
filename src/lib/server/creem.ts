@@ -45,8 +45,40 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-export const createCheckout = (body: { product_id: string; request_id: string; success_url: string; metadata: Record<string, string>; customer?: { email: string } }) =>
+export const createCheckout = (body: { product_id: string; request_id: string; success_url: string; metadata: Record<string, string>; discount_code?: string; customer?: { email: string } }) =>
   call<CreemCheckout>("/v1/checkouts", { method: "POST", body: JSON.stringify(body) });
+
+/** A discount code made in the Creem dashboard (Discounts). Fixed amounts are in cents. */
+export interface CreemDiscount {
+  code: string;
+  status: string;
+  type: "percentage" | "fixed";
+  percentage?: number;
+  amount?: number;
+  expiry_date?: string;
+  max_redemptions?: number;
+  redeem_count?: number;
+  applies_to_products?: string[];
+}
+
+/** The discount for a code, or null when Creem doesn't know it. */
+export async function getDiscount(code: string): Promise<CreemDiscount | null> {
+  try {
+    return await call<CreemDiscount>(`/v1/discounts?discount_code=${encodeURIComponent(code)}`);
+  } catch (e) {
+    if (/Creem 404/.test(String(e))) return null;
+    throw e;
+  }
+}
+
+/** Packs a usable code takes money off, or why it can't be used. */
+export function discountPacks(d: CreemDiscount | null, products: Record<string, string>, now = Date.now()): { packs: string[] } | { error: string } {
+  if (!d || d.status !== "active") return { error: "That discount code isn't valid." };
+  if (d.expiry_date && Date.parse(d.expiry_date) < now) return { error: "That discount code has expired." };
+  if (d.max_redemptions != null && (d.redeem_count ?? 0) >= d.max_redemptions) return { error: "That discount code has been used up." };
+  const packs = Object.entries(products).filter(([, product]) => d.applies_to_products?.includes(product)).map(([pack]) => pack);
+  return packs.length ? { packs } : { error: "That discount code doesn't apply to any credit pack." };
+}
 
 export const getCheckout = (id: string) => call<CreemCheckout>(`/v1/checkouts?checkout_id=${encodeURIComponent(id)}`);
 

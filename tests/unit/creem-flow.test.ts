@@ -57,4 +57,36 @@ describe("creem purchase flow", () => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
+
+  it("applies a Creem discount code to the checkout and the order price", { timeout: 30_000 }, async () => {
+    vi.resetModules();
+    vi.stubEnv("NEXT_PUBLIC_FIREBASE_PROJECT_ID", "");
+    vi.stubEnv("FIREBASE_PROJECT_ID", "");
+    vi.stubEnv("CREDITS_STORE", "file");
+    vi.stubEnv("CREDITS_FILE", path.join(mkdtempSync(path.join(tmpdir(), "simubox-creem-")), "credits.json"));
+    vi.stubEnv("CREEM_API_KEY", "creem_test_x");
+    vi.stubEnv("CREEM_PRODUCTS", "starter:prod_s;explorer:prod_e");
+    let sent: Record<string, unknown> = {};
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      if (url.includes("/v1/discounts")) {
+        return url.endsWith("SAVE20")
+          ? Response.json({ code: "SAVE20", status: "active", type: "percentage", percentage: 20, applies_to_products: ["prod_e"] })
+          : new Response("not found", { status: 404 });
+      }
+      sent = JSON.parse(String(init?.body));
+      return Response.json({ id: "chk_d", status: "pending", checkout_url: "https://creem.test/pay/chk_d" });
+    });
+    const { POST } = await import("@/app/api/credits/route");
+    const call = async (body: object) => (await POST(new Request("https://simubox.test/api/credits", { method: "POST", body: JSON.stringify(body) }))).json();
+
+    expect((await call({ action: "discount", code: "NOPE" })).error).toBeTruthy();
+    expect((await call({ action: "discount", code: "SAVE20" })).discount).toMatchObject({ code: "SAVE20", packs: ["explorer"] });
+    // It doesn't cover Starter, so that order is refused rather than charged full price silently.
+    expect((await call({ action: "order", pack: "starter", discount: "SAVE20" })).error).toBeTruthy();
+    const r = await call({ action: "order", pack: "explorer", discount: "SAVE20" });
+    expect(sent).toMatchObject({ product_id: "prod_e", discount_code: "SAVE20" });
+    expect(r.order).toMatchObject({ price: 799, discount: "SAVE20", credits: 350 });
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
 });

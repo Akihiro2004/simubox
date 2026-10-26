@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import type { Discount } from "@/lib/credits";
 import { freshWallet, type LedgerEntry, type Order, type Wallet } from "./economy";
 import { idToken, initFirebase } from "../firebase";
 import type { AssetId } from "../world/catalog";
@@ -22,7 +23,7 @@ interface BuilderState {
   answer: (id: AssetId, choice: number) => Promise<{ correct: boolean; reward: number }>;
 }
 
-type Reply = { error?: string; code?: string; correct?: boolean; reward?: number; order?: Order; checkoutUrl?: string; account?: AccountView };
+type Reply = { error?: string; code?: string; correct?: boolean; reward?: number; order?: Order; checkoutUrl?: string; discount?: Discount; account?: AccountView };
 
 export async function creditsApi(body?: object): Promise<Reply> {
   await initFirebase();

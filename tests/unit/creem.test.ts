@@ -1,7 +1,8 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createOrder, freshAccount, settleOrder } from "@/lib/builder/economy";
-import { checkoutPaid, creemProducts, validSignature } from "@/lib/server/creem";
+import { discountedPrice } from "@/lib/credits";
+import { checkoutPaid, creemProducts, discountPacks, validSignature } from "@/lib/server/creem";
 import { firestoreSafe } from "@/lib/server/ledger";
 
 const hasUndefined = (v: unknown): boolean => v === undefined || (typeof v === "object" && v !== null && Object.values(v).some(hasUndefined));
@@ -40,5 +41,26 @@ describe("creem", () => {
     expect(checkoutPaid(paid, "ord_1", "prod_cheaper")).toBe(false);
     expect(checkoutPaid(paid, "ord_1", undefined)).toBe(false);
     expect(checkoutPaid({ ...paid, order: { status: "pending" } }, "ord_1", "prod_a")).toBe(false);
+  });
+});
+
+describe("discount codes", () => {
+  const products = { starter: "prod_s", explorer: "prod_e" };
+  const d = { code: "SAVE20", status: "active", type: "percentage" as const, percentage: 20, applies_to_products: ["prod_e"] };
+
+  it("finds the packs a code applies to, and refuses unusable codes", () => {
+    expect(discountPacks(d, products)).toEqual({ packs: ["explorer"] });
+    expect(discountPacks(null, products)).toHaveProperty("error");
+    expect(discountPacks({ ...d, status: "expired" }, products)).toHaveProperty("error");
+    expect(discountPacks({ ...d, expiry_date: "2020-01-01T00:00:00Z" }, products)).toHaveProperty("error");
+    expect(discountPacks({ ...d, max_redemptions: 5, redeem_count: 5 }, products)).toHaveProperty("error");
+    expect(discountPacks({ ...d, applies_to_products: ["prod_other"] }, products)).toHaveProperty("error");
+  });
+
+  it("takes percentages and fixed cents off, never below zero", () => {
+    expect(discountedPrice(999, { type: "percentage", percentage: 20 })).toBe(799);
+    expect(discountedPrice(499, { type: "fixed", amount: 2 })).toBe(497); // Creem's fixed amounts are cents
+    expect(discountedPrice(499, { type: "percentage", percentage: 100 })).toBe(0);
+    expect(discountedPrice(499, { type: "fixed", amount: 10_000 })).toBe(0);
   });
 });
