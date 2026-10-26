@@ -37,6 +37,9 @@ gcloud projects add-iam-policy-binding $Project --member "serviceAccount:$sa" --
 # Credit balances live in Firestore (credits/{account}); the server is the only writer.
 $creditsProject = if ($FirebaseProjectId) { $FirebaseProjectId } else { $Project }
 gcloud projects add-iam-policy-binding $creditsProject --member "serviceAccount:$sa" --role "roles/datastore.user" --condition=None | Out-Null
+if ($LASTEXITCODE -ne 0) {
+  throw "Couldn't let $sa use Firestore in $creditsProject (credit balances would fail with 503). Run this as an owner of $creditsProject, then deploy again:`n  gcloud projects add-iam-policy-binding $creditsProject --member serviceAccount:$sa --role roles/datastore.user --condition=None"
+}
 
 # Reads a key from the environment or .env.local.
 function Get-Key([string]$Name) {
