@@ -6,7 +6,6 @@
 
 import { create } from "zustand";
 import type { Auth, User } from "firebase/auth";
-import type { Firestore } from "firebase/firestore";
 
 export interface AuthState {
   user: { uid: string; name: string | null; photo: string | null; email: string | null } | null;
@@ -18,7 +17,6 @@ export interface AuthState {
 export const useAuth = create<AuthState>(() => ({ user: null, available: false, ready: false, error: null }));
 
 let auth: Auth | null = null;
-let db: Firestore | null = null;
 let init: Promise<void> | null = null;
 let current: User | null = null;
 
@@ -30,11 +28,10 @@ export function initFirebase(): Promise<void> {
       useAuth.setState({ ready: true, available: false });
       return;
     }
-    const [{ initializeApp, getApps }, a, f] = await Promise.all([import("firebase/app"), import("firebase/auth"), import("firebase/firestore")]);
+    const [{ initializeApp, getApps }, a] = await Promise.all([import("firebase/app"), import("firebase/auth")]);
     const app = getApps()[0] ?? initializeApp(config);
     useAuth.setState({ available: true });
     auth = a.getAuth(app);
-    db = f.getFirestore(app);
     a.onAuthStateChanged(auth, (u) => {
       current = u;
       useAuth.setState({ ready: true, user: u ? { uid: u.uid, name: u.displayName, photo: u.photoURL, email: u.email } : null });
@@ -89,7 +86,13 @@ export async function idToken(): Promise<string | null> {
   }
 }
 
-export async function firestore(): Promise<Firestore | null> {
+/**
+ * Calls one of this site's own APIs as the signed-in student. Account data
+ * (saves, profile, credits) always goes through the server: browser extensions
+ * block Firestore's own connection, but not requests to this site.
+ */
+export async function accountFetch(path: string, init: RequestInit = {}): Promise<Response> {
   await initFirebase();
-  return db;
+  const token = await idToken();
+  return fetch(path, { ...init, headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}), ...init.headers } });
 }

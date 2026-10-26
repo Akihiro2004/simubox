@@ -1,11 +1,11 @@
 "use client";
 
-// Saved experiments: Firestore under users/{uid}/experiments when signed in,
-// otherwise localStorage in this browser. Only plain data is stored (no live
+// Saved experiments: the account's own list (users/{uid}/experiments, through
+// /api/experiments) when signed in, otherwise localStorage in this browser. Only plain data is stored (no live
 // physics objects); restoring re-creates the scene from catalog ids.
 
 import { z } from "zod";
-import { firestore, useAuth } from "./firebase";
+import { accountFetch, useAuth } from "./firebase";
 import { ScenePlan } from "./ssp/schema";
 import { pickScene, useSim, type SceneData } from "./store";
 import { livePosition } from "./world/runtime";
@@ -68,12 +68,9 @@ export async function saveExperiment(title?: string): Promise<SavedExperiment> {
     plan: s.lastPlan,
     version: SAVE_VERSION,
   };
-  const user = useAuth.getState().user;
-  const db = user ? await firestore() : null;
-  if (user && db) {
-    const f = await import("firebase/firestore");
-    // Firestore rejects undefined; JSON round-trip drops it.
-    await f.setDoc(f.doc(db, "users", user.uid, "experiments", id), { ...JSON.parse(JSON.stringify(exp)), updatedAt: f.serverTimestamp(), updatedAtMs: exp.updatedAt });
+  if (useAuth.getState().user) {
+    const res = await accountFetch("/api/experiments", { method: "POST", body: JSON.stringify(exp) });
+    if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Couldn't save the experiment.");
   } else {
     writeLocal([exp, ...readLocal().filter((e) => e.id !== id)]);
   }
@@ -82,25 +79,18 @@ export async function saveExperiment(title?: string): Promise<SavedExperiment> {
 }
 
 export async function listExperiments(): Promise<SavedExperiment[]> {
-  const user = useAuth.getState().user;
-  const db = user ? await firestore() : null;
-  if (user && db) {
-    const f = await import("firebase/firestore");
-    const snap = await f.getDocs(f.query(f.collection(db, "users", user.uid, "experiments"), f.orderBy("updatedAtMs", "desc"), f.limit(30)));
-    return snap.docs.map((d) => {
-      const data = d.data() as SavedExperiment & { updatedAtMs: number };
-      return { ...data, id: d.id, updatedAt: data.updatedAtMs };
-    });
+  if (useAuth.getState().user) {
+    const res = await accountFetch("/api/experiments");
+    if (!res.ok) throw new Error("Couldn't load saved experiments.");
+    return ((await res.json()) as { experiments: SavedExperiment[] }).experiments;
   }
   return readLocal();
 }
 
 export async function deleteExperiment(id: string) {
-  const user = useAuth.getState().user;
-  const db = user ? await firestore() : null;
-  if (user && db) {
-    const f = await import("firebase/firestore");
-    await f.deleteDoc(f.doc(db, "users", user.uid, "experiments", id));
+  if (useAuth.getState().user) {
+    const res = await accountFetch(`/api/experiments?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Couldn't delete the experiment.");
   } else {
     writeLocal(readLocal().filter((e) => e.id !== id));
   }

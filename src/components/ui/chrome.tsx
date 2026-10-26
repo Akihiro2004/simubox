@@ -332,8 +332,12 @@ function MenuContent() {
               aria-label={`Delete ${e.title}`}
               onClick={async () => {
                 if (!confirm(`Delete “${e.title}”?`)) return;
-                await deleteExperiment(e.id);
-                setSaves(await listExperiments());
+                try {
+                  await deleteExperiment(e.id);
+                  setSaves(await listExperiments());
+                } catch {
+                  setNote("Couldn't delete. Check your connection and try again.");
+                }
               }}
             >
               <Trash size={15} />

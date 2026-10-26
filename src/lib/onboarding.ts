@@ -1,11 +1,11 @@
 "use client";
 
 // Whether a signed-in student has been through the welcome flow. The flag
-// lives in Firestore (users/{uid}/meta/profile) so it follows the account to
+// lives on the account (users/{uid}/meta/profile, through /api/profile) so it follows it to
 // any device, with a local copy so it never flashes again on this one and
 // still works offline.
 
-import { firestore } from "./firebase";
+import { accountFetch } from "./firebase";
 import type { Settings } from "./store";
 
 export type OnboardingPrefs = Pick<Settings, "gradeBand" | "language" | "voice">;
@@ -32,14 +32,10 @@ function rememberHere(uid: string) {
 export async function needsOnboarding(uid: string): Promise<boolean> {
   if (seenHere(uid)) return false;
   try {
-    const db = await firestore();
-    if (db) {
-      const f = await import("firebase/firestore");
-      const snap = await f.getDoc(f.doc(db, "users", uid, "meta", "profile"));
-      if (snap.exists() && typeof snap.data().onboardedAt === "number") {
-        rememberHere(uid);
-        return false;
-      }
+    const res = await accountFetch("/api/profile");
+    if (res.ok && ((await res.json()) as { onboarded?: boolean }).onboarded) {
+      rememberHere(uid);
+      return false;
     }
   } catch {
     // Offline or blocked: decide from this device alone.
@@ -51,10 +47,7 @@ export async function needsOnboarding(uid: string): Promise<boolean> {
 export async function markOnboarded(uid: string, prefs: OnboardingPrefs): Promise<void> {
   rememberHere(uid);
   try {
-    const db = await firestore();
-    if (!db) return;
-    const f = await import("firebase/firestore");
-    await f.setDoc(f.doc(db, "users", uid, "meta", "profile"), { onboardedAt: Date.now(), ...prefs }, { merge: true });
+    await accountFetch("/api/profile", { method: "POST", body: JSON.stringify(prefs) });
   } catch {
     // The local flag is enough to not show it again here.
   }
