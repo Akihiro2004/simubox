@@ -4,7 +4,7 @@
 // (/wallet/checkout). The checkout behaves like a payment gateway in test
 // mode: test card numbers decide the outcome and no money ever moves.
 
-import { ArrowLeft, Check, Coins, CreditCard, Loader2, Lock, QrCode, ShieldCheck, Smartphone, Tag } from "lucide-react";
+import { ArrowLeft, Check, CreditCard, Loader2, Lock, QrCode, ShieldCheck, Smartphone, Tag } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -13,7 +13,7 @@ import type { Order } from "@/lib/builder/economy";
 import { discountedPrice, formatUsd, PACK_BY_ID, PACKS, PRICES, SIGNUP_BONUS, type Discount } from "@/lib/credits";
 import { DISCOVERY_REWARD } from "@/lib/builder/catalog";
 import { initFirebase, signIn, useAuth } from "@/lib/firebase";
-import { LegalLinks } from "./legal-links";
+import { LegalLinks, SUPPORT_EMAIL } from "./legal-links";
 
 /** The account once sign-in has settled, refetched when the student signs in or out. */
 function useAccount(): { account: AccountView | null; loading: boolean; loadError: string | null } {
@@ -40,14 +40,14 @@ function useAccount(): { account: AccountView | null; loading: boolean; loadErro
   return { account, loading: loading || !ready, loadError };
 }
 
-const card = "glass rounded-[24px] p-5 sm:p-6";
+const card = "rounded-[20px] border border-[var(--hairline-strong)] bg-white/70 p-5 sm:p-6";
 const eyebrow = "text-[12px] font-extrabold uppercase tracking-[0.08em] text-ink-3";
 
 function Shell({ children, back = "/app", backLabel = "Back to SimuBox" }: { children: React.ReactNode; back?: string; backLabel?: string }) {
   return (
     <main className="h-dvh overflow-y-auto px-4 pb-16 pt-6 sm:px-6 sm:pt-10">
-      <div className="mx-auto max-w-[1040px] space-y-6">
-        <Link href={back} className="inline-flex items-center gap-1.5 text-[15px] font-bold text-[var(--dot-info)]">
+      <div className="mx-auto max-w-[1040px] space-y-8">
+        <Link href={back} className="inline-flex items-center gap-1.5 text-[14px] font-bold text-ink-2 hover:text-ink">
           <ArrowLeft size={16} /> {backLabel}
         </Link>
         {children}
@@ -56,8 +56,9 @@ function Shell({ children, back = "/app", backLabel = "Back to SimuBox" }: { chi
   );
 }
 
-/** A Creem discount code: checked on the server, then shown on the packs it takes money off. */
+/** A Creem discount code: hidden behind a link until wanted, checked on the server, then applied to the packs it covers. */
 function DiscountBox({ discount, onChange }: { discount: Discount | null; onChange: (d: Discount | null) => void }) {
+  const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,43 +74,54 @@ function DiscountBox({ discount, onChange }: { discount: Discount | null; onChan
     const off = discount.type === "percentage" ? `${discount.percentage}% off` : `${formatUsd(discount.amount ?? 0)} off`;
     const which = discount.packs.length === PACKS.length ? "every pack" : discount.packs.map((p) => PACK_BY_ID[p]?.name ?? p).join(", ");
     return (
-      <section className={`${card} flex flex-wrap items-center justify-between gap-3 !py-4`} aria-live="polite">
-        <p className="flex items-center gap-2 text-[15px] font-bold">
-          <Tag size={17} className="text-[var(--dot-question)]" />
-          <span>
-            <span className="font-extrabold">{discount.code}</span> applied: {off} {which}
-          </span>
-        </p>
-        <button className="btn text-[14px] font-bold text-ink-2 underline" onClick={() => onChange(null)}>
+      <p className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-[14px] font-semibold text-ink-2" aria-live="polite">
+        <Tag size={15} className="text-[var(--dot-question)]" />
+        <span className="font-mono font-bold text-ink">{discount.code}</span>
+        <span>
+          {off} {which}
+        </span>
+        <span aria-hidden>·</span>
+        <button className="btn font-bold text-ink underline underline-offset-2" onClick={() => onChange(null)}>
           Remove
         </button>
-      </section>
+      </p>
+    );
+  }
+  if (!open) {
+    return (
+      <p className="text-center">
+        <button className="btn text-[14px] font-bold text-ink-2 underline underline-offset-4 hover:text-ink" onClick={() => setOpen(true)}>
+          Have a discount code?
+        </button>
+      </p>
     );
   }
   return (
     <form
-      className={`${card} flex flex-wrap items-center gap-3 !py-4`}
+      className="mx-auto flex w-full max-w-[420px] flex-col gap-2"
       onSubmit={(e) => {
         e.preventDefault();
         if (code && !checking) void apply();
       }}
     >
-      <label className="flex min-w-[220px] flex-1 items-center gap-2">
-        <Tag size={17} className="shrink-0 text-ink-3" />
-        <span className="sr-only">Discount code</span>
-        <input
-          className="h-11 w-full rounded-[14px] border border-[var(--hairline)] bg-white/80 px-4 font-mono text-[16px] font-bold uppercase outline-none focus:border-[var(--dot-info)]"
-          placeholder="Discount code"
-          autoComplete="off"
-          value={code}
-          onChange={(e) => setCode(e.target.value.replace(/[^a-z0-9]/gi, "").toUpperCase().slice(0, 14))}
-        />
-      </label>
-      <button type="submit" disabled={!code || checking} className="btn btn-ink flex h-11 items-center gap-2 rounded-full px-5 text-[15px] font-extrabold">
-        {checking ? <Loader2 size={16} className="animate-spin" /> : "Apply"}
-      </button>
+      <div className="flex gap-2">
+        <label className="flex-1">
+          <span className="sr-only">Discount code</span>
+          <input
+            autoFocus
+            className="h-11 w-full rounded-full border border-[var(--hairline-strong)] bg-white px-4 font-mono text-[15px] font-bold uppercase outline-none placeholder:font-sans placeholder:normal-case placeholder:font-semibold placeholder:text-ink-3 focus:border-ink"
+            placeholder="Discount code"
+            autoComplete="off"
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/[^a-z0-9]/gi, "").toUpperCase().slice(0, 14))}
+          />
+        </label>
+        <button type="submit" disabled={!code || checking} className="btn btn-ink flex h-11 min-w-[88px] items-center justify-center rounded-full px-5 text-[15px] font-bold">
+          {checking ? <Loader2 size={16} className="animate-spin" /> : "Apply"}
+        </button>
+      </div>
       {error && (
-        <p role="alert" className="w-full text-[14px] font-bold text-[var(--dot-warning)]">
+        <p role="alert" className="text-center text-[13px] font-bold text-[var(--dot-warning)]">
           {error}
         </p>
       )}
@@ -121,13 +133,13 @@ function SignInCard() {
   const available = useAuth((a) => a.available);
   const error = useAuth((a) => a.error);
   return (
-    <section className={`${card} flex flex-wrap items-center justify-between gap-4`}>
+    <section className="flex flex-wrap items-center justify-between gap-4 rounded-[20px] border border-[var(--hairline-strong)] bg-white/60 px-5 py-4">
       <div>
-        <h2 className="text-[19px] font-extrabold">Sign in to buy credits</h2>
-        <p className="text-[15px] font-semibold text-ink-2">Credits belong to your account, so they follow you to any device. New accounts get {SIGNUP_BONUS} free credits.</p>
-        {error && <p className="mt-1 text-[14px] font-bold text-[var(--dot-warning)]">{error}</p>}
+        <h2 className="text-[16px] font-extrabold">Sign in to buy credits</h2>
+        <p className="text-[14px] font-semibold text-ink-2">Credits follow your account to any device. New accounts get {SIGNUP_BONUS} free credits.</p>
+        {error && <p className="mt-1 text-[13px] font-bold text-[var(--dot-warning)]">{error}</p>}
       </div>
-      <button disabled={!available} className="btn btn-ink h-11 rounded-full px-5 text-[15px] font-extrabold" onClick={() => void signIn()}>
+      <button disabled={!available} className="btn btn-ink h-10 rounded-full px-5 text-[14px] font-bold" onClick={() => void signIn()}>
         Sign in with Google
       </button>
     </section>
@@ -142,6 +154,9 @@ const SPEND = [
   { what: "Build & Discover items", cost: "3–10 credits, once" },
   { what: "Simu's voice, sliders, dragging", cost: "Free" },
 ];
+
+const sectionTitle = "mb-1 text-[15px] font-extrabold";
+const row = "flex items-baseline justify-between gap-4 border-b border-[var(--hairline)] py-3 text-[14px] font-semibold last:border-0";
 
 export function CreditsStore() {
   const router = useRouter();
@@ -167,103 +182,101 @@ export function CreditsStore() {
 
   return (
     <Shell>
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className={eyebrow}>Credits</p>
-          <h1 className="text-[32px] font-extrabold leading-tight sm:text-[40px]">Keep the questions coming</h1>
-          <p className="max-w-[560px] text-[16px] font-semibold text-ink-2">Each question to Simu uses credits. A lesson that fails to load is refunded automatically.</p>
-        </div>
-        <div className={`${card} flex items-center gap-3 !py-4`} aria-live="polite">
-          <span className="grid h-11 w-11 place-items-center rounded-full bg-[var(--accent)]">
-            <Coins size={22} />
+      <header className="space-y-3 pt-2 text-center sm:pt-6">
+        <h1 className="text-[34px] font-extrabold leading-tight tracking-[-0.02em] sm:text-[44px]">Credits</h1>
+        <p className="mx-auto max-w-[480px] text-[16px] font-semibold text-ink-2">Each question to Simu uses credits. A lesson that fails to load is refunded automatically.</p>
+        <p className="inline-flex items-center gap-2 rounded-full border border-[var(--hairline-strong)] bg-white/60 px-4 py-1.5 text-[14px] font-semibold text-ink-2" aria-live="polite">
+          Your balance
+          <span className="font-extrabold text-ink" data-testid="balance">
+            {loading ? "…" : (account?.credits ?? 0).toLocaleString()}
           </span>
-          <div>
-            <p className={eyebrow}>Your balance</p>
-            <p className="text-[28px] font-extrabold leading-none" data-testid="balance">
-              {loading ? "…" : (account?.credits ?? 0)}
-            </p>
-          </div>
-        </div>
+          credits
+        </p>
       </header>
 
       {!loading && loadError && (
-        <p role="alert" className="text-[15px] font-bold text-[var(--dot-warning)]">
+        <p role="alert" className="text-center text-[14px] font-bold text-[var(--dot-warning)]">
           {loadError}
         </p>
       )}
       {!loading && !signedIn && <SignInCard />}
-      {account?.payments === "creem" && <DiscountBox discount={discount} onChange={setDiscount} />}
 
-      <section aria-label="Credit packs" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section aria-label="Credit packs" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {PACKS.map((p) => {
           const popular = p.id === "explorer";
           const price = priceOf(p);
           return (
-            <article key={p.id} className={`${card} relative flex flex-col gap-3 ${popular ? "ring-2 ring-[var(--accent)]" : ""}`}>
-              {popular && <span className="absolute -top-3 left-5 rounded-full bg-[var(--accent)] px-3 py-0.5 text-[12px] font-extrabold">Most popular</span>}
-              <p className={eyebrow}>{p.name}</p>
-              <p className="flex items-baseline gap-1.5">
-                <span className="text-[34px] font-extrabold leading-none">{p.credits.toLocaleString()}</span>
-                <span className="text-[15px] font-bold text-ink-2">credits</span>
+            <article
+              key={p.id}
+              className={`flex flex-col rounded-[20px] border bg-white/70 p-5 ${popular ? "border-ink" : "border-[var(--hairline-strong)]"}`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-[15px] font-extrabold">{p.name}</h2>
+                {popular && <span className="rounded-full bg-[var(--fill)] px-2.5 py-0.5 text-[12px] font-bold text-ink-2">Popular</span>}
+              </div>
+              <p className="mt-4 flex items-baseline gap-2">
+                <span className="text-[36px] font-extrabold leading-none tracking-[-0.02em]">{formatUsd(price)}</span>
+                {price < p.price && <s className="text-[15px] font-semibold text-ink-3">{formatUsd(p.price)}</s>}
               </p>
-              <p className="text-[14px] font-semibold text-ink-2">{p.note}</p>
-              <p className="text-[14px] font-semibold text-ink-3">{formatUsd(Math.round((price / p.credits) * PRICES.lesson))} per lesson</p>
+              <p className="mt-1 text-[13px] font-semibold text-ink-3">One-time payment</p>
+              <ul className="mt-5 space-y-1.5 text-[14px] font-semibold text-ink-2">
+                <li>
+                  <span className="font-extrabold text-ink">{p.credits.toLocaleString()}</span> credits
+                </li>
+                <li>{p.note}</li>
+                <li>{formatUsd(Math.round((price / p.credits) * PRICES.lesson))} per lesson</li>
+              </ul>
               <button
                 disabled={!signedIn || busy !== null}
-                className={`btn ${popular ? "btn-accent" : "btn-ink"} mt-auto flex h-11 items-center justify-center gap-2 rounded-full text-[16px] font-extrabold`}
+                className={`btn mt-6 flex h-11 items-center justify-center rounded-full text-[15px] font-bold ${
+                  popular ? "btn-ink" : "border border-[var(--hairline-strong)] bg-white text-ink hover:border-ink"
+                }`}
                 onClick={() => void buy(p.id)}
                 aria-label={`Buy ${p.name}: ${p.credits} credits for ${formatUsd(price)}`}
               >
-                {busy === p.id ? (
-                  <Loader2 size={18} className="animate-spin" />
-                ) : price < p.price ? (
-                  <>
-                    <s className="text-[14px] font-bold opacity-60">{formatUsd(p.price)}</s> {formatUsd(price)}
-                  </>
-                ) : (
-                  formatUsd(p.price)
-                )}
+                {busy === p.id ? <Loader2 size={17} className="animate-spin" /> : "Buy"}
               </button>
             </article>
           );
         })}
       </section>
       {error && (
-        <p role="alert" className="text-[15px] font-bold text-[var(--dot-warning)]">
+        <p role="alert" className="text-center text-[14px] font-bold text-[var(--dot-warning)]">
           {error}
         </p>
       )}
+      {account?.payments === "creem" && <DiscountBox discount={discount} onChange={setDiscount} />}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <section className={card}>
-          <h2 className="mb-3 text-[19px] font-extrabold">What credits buy</h2>
-          <ul className="divide-y divide-[var(--hairline)]">
+      <div className="grid gap-x-12 gap-y-10 pt-6 lg:grid-cols-2">
+        <section>
+          <h2 className={sectionTitle}>What credits buy</h2>
+          <ul>
             {SPEND.map((s) => (
-              <li key={s.what} className="flex justify-between gap-4 py-2.5 text-[15px] font-semibold">
+              <li key={s.what} className={row}>
                 <span className="text-ink-2">{s.what}</span>
-                <span className="shrink-0 font-extrabold">{s.cost}</span>
+                <span className="shrink-0 font-bold text-ink">{s.cost}</span>
               </li>
             ))}
           </ul>
-          <p className="mt-3 text-[14px] font-semibold text-ink-3">
+          <p className="mt-3 text-[13px] font-semibold text-ink-3">
             Free credits: {SIGNUP_BONUS} when you first sign in, and {DISCOVERY_REWARD} for each discovery question you answer right in Build & Discover.
           </p>
         </section>
-        <section className={card}>
-          <h2 className="mb-3 text-[19px] font-extrabold">Recent activity</h2>
+        <section>
+          <h2 className={sectionTitle}>Recent activity</h2>
           {!account?.history.length ? (
-            <p className="text-[15px] font-semibold text-ink-3">Nothing yet.</p>
+            <p className="py-3 text-[14px] font-semibold text-ink-3">Nothing yet.</p>
           ) : (
-            <ul className="max-h-[320px] divide-y divide-[var(--hairline)] overflow-y-auto pr-1">
+            <ul className="max-h-[340px] overflow-y-auto pr-1">
               {account.history.map((h, i) => (
-                <li key={`${h.at}-${i}`} className="flex justify-between gap-4 py-2 text-[14px] font-semibold">
+                <li key={`${h.at}-${i}`} className={row}>
                   <span className="min-w-0">
                     <span className="block truncate text-ink">{h.reason}</span>
-                    <span className="text-ink-3">{new Date(h.at).toLocaleString()}</span>
+                    <span className="text-[13px] text-ink-3">{new Date(h.at).toLocaleString()}</span>
                   </span>
-                  <span className={`shrink-0 font-extrabold ${h.amount > 0 ? "text-[var(--dot-question)]" : "text-ink-2"}`}>
+                  <span className={`shrink-0 font-bold tabular-nums ${h.amount > 0 ? "text-[var(--dot-question)]" : "text-ink-2"}`}>
                     {h.amount > 0 ? "+" : ""}
-                    {h.amount}
+                    {h.amount.toLocaleString()}
                   </span>
                 </li>
               ))}
@@ -271,14 +284,21 @@ export function CreditsStore() {
           )}
         </section>
       </div>
-      <p className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-3">
-        <ShieldCheck size={15} />
-        {account?.payments === "creem" ? "Secure payment by Creem, our merchant of record. Card details never reach SimuBox." : "Payments run in sandbox mode for this demo: no real money is charged."}
-      </p>
-      <p className="text-[13px] font-semibold text-ink-3">
-        One-time payments in US dollars, no subscription. By buying you agree to the <Link href="/terms" className="font-bold underline">Terms</Link>; unused packs can be refunded within 14 days.
-      </p>
-      <LegalLinks className="!justify-start" />
+
+      <footer className="space-y-3 border-t border-[var(--hairline)] pt-6 text-center text-[13px] font-semibold text-ink-3">
+        <p className="flex items-center justify-center gap-1.5">
+          <ShieldCheck size={14} />
+          {account?.payments === "creem" ? "Secure payment by Creem, our merchant of record. Card details never reach SimuBox." : "Payments run in sandbox mode for this demo: no real money is charged."}
+        </p>
+        <p>
+          Prices in US dollars, no subscription. By buying you agree to the{" "}
+          <Link href="/terms" className="font-bold underline underline-offset-2">
+            Terms
+          </Link>
+          ; unused packs can be refunded within 14 days.
+        </p>
+        <LegalLinks />
+      </footer>
     </Shell>
   );
 }
@@ -356,9 +376,7 @@ function Checkout({ orderId }: { orderId: string }) {
   if (loading) {
     return (
       <Shell back="/wallet" backLabel="Back to credits">
-        <p className="flex items-center gap-2 text-[16px] font-bold text-ink-2" role="status">
-          <Loader2 size={18} className="animate-spin" /> Loading your order…
-        </p>
+        <Status icon={<Loader2 size={22} className="animate-spin" />} title="Loading your order…" />
       </Shell>
     );
   }
@@ -366,10 +384,11 @@ function Checkout({ orderId }: { orderId: string }) {
     return (
       <Shell back="/wallet" backLabel="Back to credits">
         {!account?.signedIn && <SignInCard />}
-        <section className={card}>
-          <h1 className="text-[24px] font-extrabold">Order not found</h1>
-          <p className="text-[15px] font-semibold text-ink-2">This checkout link has expired or belongs to another account. Pick a pack again.</p>
-        </section>
+        <Status title="Order not found" text="This checkout link has expired or belongs to another account. Pick a pack again.">
+          <Link href="/wallet" className="btn btn-ink inline-flex h-11 items-center rounded-full px-6 text-[15px] font-bold">
+            See credit packs
+          </Link>
+        </Status>
       </Shell>
     );
   }
@@ -377,40 +396,21 @@ function Checkout({ orderId }: { orderId: string }) {
   const digits = number.replace(/\D/g, "");
   const ready = method === "card" ? digits.length >= 15 && /^\d{2}\s*\/\s*\d{2}$/.test(expiry) && /^\d{3,4}$/.test(cvc) && name.trim().length > 1 : method === "ewallet" ? phone.replace(/\D/g, "").length >= 9 : true;
 
+  if (done) {
+    return (
+      <Shell back="/wallet" backLabel="Back to credits">
+        <Receipt order={done} packName={pack.name} balance={account?.credits} />
+      </Shell>
+    );
+  }
+
   return (
     <Shell back="/wallet" backLabel="Back to credits">
-      <div className="flex items-center justify-between gap-3 rounded-[16px] bg-[var(--accent)] px-4 py-2.5 text-[14px] font-extrabold" role="note">
-        <span>Test mode · No real money moves</span>
-        <span className="hidden sm:inline">Sandbox Pay</span>
-      </div>
+      <p className="mx-auto w-fit rounded-full border border-[var(--hairline-strong)] bg-white/60 px-4 py-1.5 text-[13px] font-bold text-ink-2" role="note">
+        Test mode · No real money moves
+      </p>
 
-      {done ? (
-        <section className={`${card} mx-auto max-w-[520px] text-center`} aria-live="polite">
-          <span className="mx-auto mb-3 grid h-16 w-16 place-items-center rounded-full bg-[var(--dot-question)] text-white">
-            <Check size={34} strokeWidth={3} />
-          </span>
-          <h1 className="text-[28px] font-extrabold">Payment successful</h1>
-          <p className="text-[17px] font-bold text-ink-2">+{done.credits.toLocaleString()} credits added</p>
-          <dl className="mx-auto mt-5 max-w-[340px] space-y-1.5 text-left text-[14px] font-semibold">
-            {[
-              ["Receipt", done.id],
-              ["Pack", pack.name],
-              ...(done.discount ? [["Discount code", done.discount]] : []),
-              ["Paid", formatUsd(done.price)],
-              ["Method", done.method === "creem" ? "Paid via Creem" : done.method === "card" ? `Card ending ${done.last4}` : done.method === "qris" ? "QR payment" : "E-wallet"],
-              ["New balance", `${account?.credits ?? "…"} credits`],
-            ].map(([k, v]) => (
-              <div key={k} className="flex justify-between gap-4">
-                <dt className="text-ink-3">{k}</dt>
-                <dd className="truncate font-extrabold">{v}</dd>
-              </div>
-            ))}
-          </dl>
-          <Link href="/app" className="btn btn-accent mt-6 inline-flex h-12 items-center rounded-full px-6 text-[16px] font-extrabold">
-            Back to exploring
-          </Link>
-        </section>
-      ) : (
+      {(
         <div className="grid gap-4 lg:grid-cols-[1fr_1.3fr]">
           <section className={card} aria-label="Order summary">
             <p className={eyebrow}>Pay SimuBox</p>
@@ -578,13 +578,75 @@ function Confirming({ orderId }: { orderId: string }) {
   }, [orderId]);
   return (
     <Shell back="/wallet" backLabel="Back to credits">
-      <section className={`${card} mx-auto max-w-[520px] text-center`} aria-live="polite">
-        <Loader2 size={34} className="mx-auto mb-3 animate-spin" />
-        <h1 className="text-[24px] font-extrabold">Confirming your payment…</h1>
-        <p className="text-[15px] font-semibold text-ink-2">
-          {waited ? "This is taking longer than usual. If you paid, your credits will appear here automatically; you can close this page." : "This takes a few seconds after you pay on Creem."}
-        </p>
-      </section>
+      <Status
+        icon={<Loader2 size={22} className="animate-spin" />}
+        title="Confirming your payment…"
+        text={waited ? "This is taking longer than usual. If you paid, your credits will appear here automatically; you can close this page." : "This takes a few seconds after you pay on Creem."}
+      />
     </Shell>
+  );
+}
+
+/** A centred one-message screen: loading, waiting or not found. */
+function Status({ icon, title, text, children }: { icon?: React.ReactNode; title: string; text?: string; children?: React.ReactNode }) {
+  return (
+    <section className="mx-auto max-w-[440px] space-y-3 pt-10 text-center" aria-live="polite">
+      {icon && <span className="mx-auto grid h-12 w-12 place-items-center rounded-full border border-[var(--hairline-strong)] text-ink-2">{icon}</span>}
+      <h1 className="text-[24px] font-extrabold tracking-[-0.01em]">{title}</h1>
+      {text && <p className="text-[15px] font-semibold text-ink-2">{text}</p>}
+      {children && <div className="pt-3">{children}</div>}
+    </section>
+  );
+}
+
+const METHOD: Record<string, string> = { creem: "Creem", qris: "QR payment (test)", ewallet: "E-wallet (test)" };
+
+/** What a paid order bought, as a plain receipt. */
+function Receipt({ order, packName, balance }: { order: Order; packName: string; balance?: number }) {
+  const rows: [string, string][] = [
+    ["Pack", `${packName} · ${order.credits.toLocaleString()} credits`],
+    ...(order.discount ? ([["Discount code", order.discount]] as [string, string][]) : []),
+    ["Paid", formatUsd(order.price)],
+    ["Payment method", order.method === "card" ? `Card ending ${order.last4} (test)` : (METHOD[order.method ?? ""] ?? "Card")],
+    ["Date", new Date(order.paidAt ?? order.createdAt).toLocaleString()],
+    ["Receipt", order.id],
+  ];
+  return (
+    <section className="mx-auto max-w-[440px] pt-6 text-center" aria-live="polite">
+      <span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-[var(--dot-question)] text-white">
+        <Check size={24} strokeWidth={3} />
+      </span>
+      <h1 className="mt-5 text-[30px] font-extrabold leading-tight tracking-[-0.02em]">Payment successful</h1>
+      <p className="mt-1 text-[16px] font-semibold text-ink-2">
+        <span className="font-extrabold text-ink">+{order.credits.toLocaleString()}</span> credits added to your account
+      </p>
+      {balance != null && (
+        <p className="mx-auto mt-4 w-fit rounded-full border border-[var(--hairline-strong)] bg-white/60 px-4 py-1.5 text-[14px] font-semibold text-ink-2">
+          New balance <span className="font-extrabold text-ink">{balance.toLocaleString()}</span> credits
+        </p>
+      )}
+      <dl className="mt-8 border-t border-[var(--hairline)] text-left text-[14px] font-semibold">
+        {rows.map(([k, v]) => (
+          <div key={k} className="flex justify-between gap-6 border-b border-[var(--hairline)] py-3">
+            <dt className="shrink-0 text-ink-3">{k}</dt>
+            <dd className="truncate text-right text-ink">{v}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="mt-8 flex flex-wrap justify-center gap-2">
+        <Link href="/app" className="btn btn-ink inline-flex h-11 items-center rounded-full px-6 text-[15px] font-bold">
+          Back to exploring
+        </Link>
+        <Link href="/wallet" className="btn inline-flex h-11 items-center rounded-full border border-[var(--hairline-strong)] bg-white px-6 text-[15px] font-bold text-ink hover:border-ink">
+          View credits
+        </Link>
+      </div>
+      <p className="mt-6 text-[13px] font-semibold text-ink-3">
+        {order.method === "creem" ? "Creem has emailed you a receipt. " : ""}Questions?{" "}
+        <a href={`mailto:${SUPPORT_EMAIL}`} className="font-bold underline underline-offset-2">
+          {SUPPORT_EMAIL}
+        </a>
+      </p>
+    </section>
   );
 }
