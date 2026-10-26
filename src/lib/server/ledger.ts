@@ -74,6 +74,9 @@ function reportStoreError(e: unknown) {
   reported.add(key);
 }
 
+/** Firestore rejects `undefined` fields (e.g. an order's unset last4); drop them as the file store does. */
+export const firestoreSafe = (account: Account): Account => JSON.parse(JSON.stringify(account));
+
 async function firestoreTransact<T>(id: string, change: Change<T>): Promise<T> {
   adminApp();
   const db = getFirestore();
@@ -81,7 +84,7 @@ async function firestoreTransact<T>(id: string, change: Change<T>): Promise<T> {
   return db.runTransaction(async (t) => {
     const snap = await t.get(ref);
     const { account, out } = change(readAccount(snap.data()) ?? starting(id));
-    t.set(ref, account);
+    t.set(ref, firestoreSafe(account));
     return out;
   });
 }

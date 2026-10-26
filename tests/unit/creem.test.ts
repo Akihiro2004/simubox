@@ -1,6 +1,20 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { createOrder, freshAccount, settleOrder } from "@/lib/builder/economy";
 import { checkoutPaid, creemProducts, validSignature } from "@/lib/server/creem";
+import { firestoreSafe } from "@/lib/server/ledger";
+
+const hasUndefined = (v: unknown): boolean => v === undefined || (typeof v === "object" && v !== null && Object.values(v).some(hasUndefined));
+
+describe("firestore account data", () => {
+  it("has no undefined fields after a Creem order is paid (Firestore rejects them)", () => {
+    const { account, order } = createOrder(freshAccount(30, "Welcome bonus"), "starter", "ord_1");
+    const paid = settleOrder(account, order!.id, { ok: true, method: "creem" }).account;
+    expect(hasUndefined(paid)).toBe(true);
+    expect(hasUndefined(firestoreSafe(paid))).toBe(false);
+    expect(firestoreSafe(paid).credits).toBe(180);
+  });
+});
 
 describe("creem", () => {
   it("parses pack:product pairs", () => {
