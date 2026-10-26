@@ -5,15 +5,16 @@ import path from "node:path";
 import { getFirestore } from "firebase-admin/firestore";
 import { freshAccount, readAccount, settleOrder, type Account } from "../builder/economy";
 import { GUEST_CREDITS, SIGNUP_BONUS } from "../credits";
-import { adminApp, clientIp, signInConfigured, verifyUser } from "./guard";
+import { adminApp, clientIp, firebaseProjectId, signInConfigured, verifyUser } from "./guard";
 
 // Server-side credit accounts. Every charge and grant runs as one atomic
 // read-modify-write, so a balance can't be spent twice or go below zero.
-//   Production (any host, serverless included): Firestore `credits/{accountId}`,
+//   Whenever Firebase is set up (any host, serverless included): Firestore `credits/{accountId}`,
 //     closed to browsers by firestore.rules; only this server writes it.
 //     On Google Cloud the runtime identity is used; elsewhere (Vercel, Lambda...)
 //     set FIREBASE_SERVICE_ACCOUNT to the service-account key JSON.
-//   `next dev`, or CREDITS_STORE=file: a JSON file in .data/ (gitignored).
+//     Locally, run `gcloud auth application-default login` once (or set FIREBASE_SERVICE_ACCOUNT).
+//   No Firebase project, or CREDITS_STORE=file: a JSON file in .data/ (gitignored).
 // ponytail: the file store locks per process; it is for one local server, never
 // serverless, where the disk is read-only or wiped between calls.
 
@@ -36,7 +37,42 @@ const starting = (id: string) => (id.startsWith("guest:") ? freshAccount(GUEST_C
 
 type Change<T> = (a: Account) => { account: Account; out: T };
 
-const useFirestore = process.env.CREDITS_STORE ? process.env.CREDITS_STORE === "firestore" : process.env.NODE_ENV === "production";
+const useFirestore = process.env.CREDITS_STORE ? process.env.CREDITS_STORE === "firestore" : signInConfigured || process.env.NODE_ENV === "production";
+
+/** The balance database can't be reached; routes answer 503 instead of crashing. */
+export class StoreUnavailable extends Error {}
+
+export const storeDown = () =>
+  Response.json({ error: "Your credit balance can't be loaded right now. Please try again in a minute.", code: "store_unavailable" }, { status: 503 });
+
+/** Runs a route handler, answering 503 when the balance database is down. */
+export async function orStoreDown(run: () => Promise<Response>): Promise<Response> {
+  try {
+    return await run();
+  } catch (e) {
+    if (e instanceof StoreUnavailable) return storeDown();
+    throw e;
+  }
+}
+
+/** Logs why Firestore failed, with the fix, once per kind of failure. */
+const reported = new Set<string>();
+function reportStoreError(e: unknown) {
+  const code = (e as { code?: number | string }).code;
+  const message = String((e as Error).message ?? e).slice(0, 300);
+  const project = firebaseProjectId ?? "(no FIREBASE_PROJECT_ID set)";
+  const fix =
+    code === 7 || /PERMISSION_DENIED|permission/i.test(message)
+      ? `give this server's service account the "Cloud Datastore User" role (roles/datastore.user) in project ${project}`
+      : code === 5 || /NOT_FOUND|does not exist/i.test(message)
+        ? `create the Firestore database (Native mode) in project ${project}`
+        : /default credentials|credential/i.test(message)
+          ? "run `gcloud auth application-default login` (local) or set FIREBASE_SERVICE_ACCOUNT"
+          : "check that Firestore is enabled and reachable";
+  const key = `${code}:${fix}`;
+  if (!reported.has(key)) console.error(JSON.stringify({ event: "credits_store_error", project, code, message, fix }));
+  reported.add(key);
+}
 
 async function firestoreTransact<T>(id: string, change: Change<T>): Promise<T> {
   adminApp();
@@ -66,8 +102,14 @@ function fileTransact<T>(id: string, change: Change<T>): Promise<T> {
   return run;
 }
 
-export function transact<T>(id: string, change: Change<T>): Promise<T> {
-  return useFirestore ? firestoreTransact(id, change) : fileTransact(id, change);
+export async function transact<T>(id: string, change: Change<T>): Promise<T> {
+  if (!useFirestore) return fileTransact(id, change);
+  try {
+    return await firestoreTransact(id, change);
+  } catch (e) {
+    reportStoreError(e);
+    throw new StoreUnavailable(String(e));
+  }
 }
 
 export const getAccount = (id: string) => transact(id, (a) => ({ account: a, out: a }));

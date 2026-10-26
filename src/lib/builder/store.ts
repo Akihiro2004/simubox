@@ -34,7 +34,7 @@ export async function creditsApi(body?: object): Promise<Reply> {
   });
   const data = (await res.json().catch(() => ({ error: "Can't reach SimuBox right now." }))) as Reply;
   // GET answers with the account itself.
-  return body ? data : { account: data as unknown as AccountView, error: data.error };
+  return body ? data : res.ok ? { account: data as unknown as AccountView } : { error: data.error ?? "Your balance can't be loaded right now." };
 }
 
 export function applyAccount(account: AccountView | undefined) {

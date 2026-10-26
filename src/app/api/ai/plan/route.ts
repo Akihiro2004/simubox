@@ -3,7 +3,7 @@ import { charge, refund } from "@/lib/builder/economy";
 import { finalPrice, PRICES } from "@/lib/credits";
 import { PlanRequest } from "@/lib/ssp/schema";
 import { clientIp, rateLimit } from "@/lib/server/guard";
-import { transact, whoIs } from "@/lib/server/ledger";
+import { transact, whoIs, orStoreDown } from "@/lib/server/ledger";
 
 function logResult(signedIn: boolean, result: DirectorResult, verifyMs: number, credits: number) {
   console.log(
@@ -21,7 +21,9 @@ function logResult(signedIn: boolean, result: DirectorResult, verifyMs: number, 
 // Serverless hosts cut functions off early by default; a lesson may take up to AI_TIMEOUT_MS (70 s) plus settling credits.
 export const maxDuration = 90;
 
-export async function POST(req: Request) {
+export const POST = (req: Request) => orStoreDown(() => post(req));
+
+async function post(req: Request) {
   const len = Number(req.headers.get("content-length") || 0);
   if (len > 64_000) return Response.json({ error: "Request too large." }, { status: 413 });
 

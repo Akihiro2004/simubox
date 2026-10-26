@@ -3,7 +3,7 @@ import { aiConfigured } from "@/lib/ai/director";
 import { charge, refund } from "@/lib/builder/economy";
 import { PRICES } from "@/lib/credits";
 import { clientIp, rateLimit } from "@/lib/server/guard";
-import { transact, whoIs } from "@/lib/server/ledger";
+import { transact, whoIs, orStoreDown } from "@/lib/server/ledger";
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const TYPES: Record<string, "pdf" | "text"> = { "application/pdf": "pdf", "text/plain": "text", "text/markdown": "text" };
@@ -11,7 +11,9 @@ const TYPES: Record<string, "pdf" | "text"> = { "application/pdf": "pdf", "text/
 // Serverless hosts cut functions off early by default; reading a file may take up to 40 s.
 export const maxDuration = 60;
 
-export async function POST(req: Request) {
+export const POST = (req: Request) => orStoreDown(() => post(req));
+
+async function post(req: Request) {
   if (!aiConfigured()) return Response.json({ error: "Lesson upload needs the AI, which isn't connected on this server.", code: "ai_unconfigured" }, { status: 503 });
   if (Number(req.headers.get("content-length") || 0) > MAX_BYTES + 64_000) return Response.json({ error: "Please use a file under 4 MB." }, { status: 413 });
 

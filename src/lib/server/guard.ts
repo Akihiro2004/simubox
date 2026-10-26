@@ -31,7 +31,9 @@ export function clientIp(req: Request): string {
   return req.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim() || req.headers.get("x-real-ip") || "local";
 }
 
-const projectId = (process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID);
+// Same order as /api/config, so tokens are checked against the project the browser signs in to.
+const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID;
+export const firebaseProjectId = projectId;
 /**
  * The one Firebase Admin app. Google Cloud supplies its own identity; other
  * hosts (Vercel, Lambda...) pass the service-account key JSON in FIREBASE_SERVICE_ACCOUNT.

@@ -16,23 +16,28 @@ import { initFirebase, signIn, useAuth } from "@/lib/firebase";
 import { LegalLinks } from "./legal-links";
 
 /** The account once sign-in has settled, refetched when the student signs in or out. */
-function useAccount(): { account: AccountView | null; loading: boolean } {
+function useAccount(): { account: AccountView | null; loading: boolean; loadError: string | null } {
   const ready = useAuth((a) => a.ready);
   const uid = useAuth((a) => a.user?.uid);
   const account = useBuilder((s) => s.account);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   useEffect(() => void initFirebase(), []);
   useEffect(() => {
     if (!ready) return;
     let alive = true;
     void creditsApi()
-      .then((r) => alive && applyAccount(r.account))
+      .then((r) => {
+        if (!alive) return;
+        applyAccount(r.account);
+        setLoadError(r.error ?? null);
+      })
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
     };
   }, [ready, uid]);
-  return { account, loading: loading || !ready };
+  return { account, loading: loading || !ready, loadError };
 }
 
 const card = "glass rounded-[24px] p-5 sm:p-6";
@@ -79,7 +84,7 @@ const SPEND = [
 
 export function CreditsStore() {
   const router = useRouter();
-  const { account, loading } = useAccount();
+  const { account, loading, loadError } = useAccount();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const user = useAuth((a) => a.user);
@@ -118,6 +123,11 @@ export function CreditsStore() {
         </div>
       </header>
 
+      {!loading && loadError && (
+        <p role="alert" className="text-[15px] font-bold text-[var(--dot-warning)]">
+          {loadError}
+        </p>
+      )}
       {!loading && !signedIn && <SignInCard />}
 
       <section aria-label="Credit packs" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

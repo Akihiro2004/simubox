@@ -6,7 +6,8 @@
 #                .env.local), stored in Secret Manager, never in the image
 # DEEPSEEK_API_KEY (environment or .env.local), if set, is stored the same way.
 #
-# Usage:  ./scripts/deploy.ps1 -Project my-project [-Region asia-southeast1] [-UseApiKey]
+# Usage:  ./scripts/deploy.ps1 -Project my-project [-Region asia-southeast1] [-UseApiKey] [-SkipCreem]
+#         -SkipCreem deploys with the built-in sandbox checkout even if .env.local has Creem keys
 #         [-FirebaseApiKey ... -FirebaseAuthDomain ... -FirebaseAppId ... -FirebaseProjectId ...]
 param(
   [Parameter(Mandatory = $true)][string]$Project,
@@ -17,7 +18,8 @@ param(
   [string]$FirebaseAuthDomain = "",
   [string]$FirebaseAppId = "",
   [string]$FirebaseProjectId = "",
-  [switch]$UseApiKey
+  [switch]$UseApiKey,
+  [switch]$SkipCreem
 )
 $ErrorActionPreference = "Stop"
 
@@ -78,7 +80,7 @@ if ($speechify) {
 }
 # Optional: Creem real payments (see .env.example). Test and live keys need
 # their own CREEM_PRODUCTS (npm run creem:setup with each key).
-$creemKey = Get-Key "CREEM_API_KEY"
+$creemKey = if ($SkipCreem) { "" } else { Get-Key "CREEM_API_KEY" }
 if ($creemKey) {
   $creemProducts = Get-Key "CREEM_PRODUCTS"
   if (-not $creemProducts) { throw "CREEM_API_KEY is set but CREEM_PRODUCTS is empty: run npm run creem:setup first." }

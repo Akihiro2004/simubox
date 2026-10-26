@@ -3,7 +3,7 @@ import { answerDiscovery, createOrder, settleOrder, unlock, type Account, type O
 import { DISCOVERIES } from "@/lib/builder/catalog";
 import { clientIp, rateLimit } from "@/lib/server/guard";
 import { checkoutPaid, createCheckout, creemEnabled, creemProducts, getCheckout, siteUrl } from "@/lib/server/creem";
-import { getAccount, grantPaidOrder, newOrderId, sandboxCharge, transact, whoIs, type Who } from "@/lib/server/ledger";
+import { getAccount, grantPaidOrder, newOrderId, sandboxCharge, transact, whoIs, type Who, orStoreDown } from "@/lib/server/ledger";
 import type { AssetId } from "@/lib/world/catalog";
 
 const assetIds = DISCOVERIES.map((d) => d.asset) as [AssetId, ...AssetId[]];
@@ -25,12 +25,16 @@ function view(a: Account, who: Who) {
   return { credits: a.credits, owned: a.owned, earned: a.earned, history: a.history, orders: a.orders, signedIn: who.signedIn, payments: creemEnabled ? "creem" : "sandbox" };
 }
 
-export async function GET(req: Request) {
+export const GET = (req: Request) => orStoreDown(() => get(req));
+
+async function get(req: Request) {
   const who = await whoIs(req);
   return Response.json(view(await getAccount(who.id), who), { headers: { "cache-control": "no-store" } });
 }
 
-export async function POST(req: Request) {
+export const POST = (req: Request) => orStoreDown(() => post(req));
+
+async function post(req: Request) {
   let body: unknown;
   try {
     body = await req.json();

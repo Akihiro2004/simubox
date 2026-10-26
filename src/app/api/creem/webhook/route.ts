@@ -1,9 +1,12 @@
 import { creemProducts, validSignature, type CreemCheckout } from "@/lib/server/creem";
-import { getAccount, grantPaidOrder } from "@/lib/server/ledger";
+import { getAccount, grantPaidOrder, orStoreDown } from "@/lib/server/ledger";
 
 // Creem calls this after a payment (Developers > Webhooks in the Creem dashboard:
-// https://<your site>/api/creem/webhook). Creem retries until it gets a 2xx.
-export async function POST(req: Request) {
+// https://<your site>/api/creem/webhook). Creem retries until it gets a 2xx,
+// so a 503 while the database is down is retried later.
+export const POST = (req: Request) => orStoreDown(() => post(req));
+
+async function post(req: Request) {
   const raw = await req.text();
   if (!validSignature(raw, req.headers.get("creem-signature"))) return Response.json({ error: "Bad signature." }, { status: 401 });
   const event = JSON.parse(raw) as { eventType?: string; object?: CreemCheckout };
