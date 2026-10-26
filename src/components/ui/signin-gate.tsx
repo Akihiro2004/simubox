@@ -12,6 +12,7 @@ import { useSim } from "@/lib/store";
 import { useMotion } from "@/lib/useMotion";
 import { needsOnboarding } from "@/lib/onboarding";
 import { ask } from "@/lib/ask";
+import { SIGNUP_BONUS } from "@/lib/credits";
 
 export function SignInGate() {
   const gate = useSim((s) => s.signInGate);
@@ -80,7 +81,7 @@ function Gate({ question }: { question: string }) {
           Sign in to keep exploring
         </h2>
         <p data-in className="mx-auto mt-2 max-w-[300px] text-[15px] font-semibold leading-relaxed text-ink-2">
-          Your first question was on us. Sign in with Google to ask as many as you like and keep your experiments.
+          Your first question was on us. Sign in with Google to get {SIGNUP_BONUS} free credits (three more lessons) and keep your experiments.
         </p>
         <p data-in className="mx-auto mt-4 rounded-[16px] bg-white/70 px-4 py-3 text-[14.5px] font-bold leading-snug shadow-[0_0_0_0.5px_var(--hairline)]">
           “{question}”

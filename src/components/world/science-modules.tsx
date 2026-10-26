@@ -21,6 +21,7 @@ const Osmosis = lazy(() => import("./modules/osmosis").then(m => ({ default: m.O
 const Signal = lazy(() => import("./modules/signal").then(m => ({ default: m.SignalModule })));
 const Optics = lazy(() => import("./modules/optics").then(m => ({ default: m.OpticsModule })));
 const Mechanics = lazy(() => import("./modules/mechanics").then(m => ({ default: m.MechanicsModule })));
+const Anatomy = lazy(() => import("./modules/anatomy").then(m => ({ default: m.AnatomyModule })));
 const SchoolMath = lazy(() => import("./modules/school-math").then(m => ({ default: m.SchoolMathModule })));
 
 class ExperimentBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
@@ -52,6 +53,7 @@ export function ScienceModules({ animate }: { animate: boolean }) {
     signal: !!s.modules.signal,
     optics: !!s.modules.optics,
     mechanics: s.world === "mechanics" && !!s.modules.mechanics,
+    anatomy: s.world === "anatomy" && !!s.modules.anatomy,
     maths: s.world === "math_studio" && !!s.modules.maths && s.modules.maths.mode !== "functions"
       && !(s.modules.plot && (s.modules.plot.functions.length || s.modules.plot.points.length || s.modules.plot.vectors.length)),
   })));
@@ -69,6 +71,7 @@ export function ScienceModules({ animate }: { animate: boolean }) {
     {active.signal && <Signal animate={animate} />}
     {active.optics && <Optics />}
     {active.mechanics && <Mechanics animate={animate} />}
+    {active.anatomy && <Anatomy animate={animate} />}
     {active.maths && <SchoolMath />}
   </Suspense></ExperimentBoundary>;
 }

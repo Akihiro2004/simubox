@@ -20,7 +20,10 @@
     },
     {
       "name": "simubox-prod",
-      "url": "http://localhost:3311",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/serve-standalone.mjs"
+      ],
       "port": 3311
     }
   ]

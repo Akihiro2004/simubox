@@ -21,6 +21,7 @@ const PLACEHOLDER_RE = /\{\{\s*([a-z_]+)(?::([a-z0-9_~]+))?\s*\}\}/g;
 /** Which world each science module lives in; using one elsewhere loads it first. */
 const MODULE_WORLD: Partial<Record<Command["op"], WorldId>> = {
   show_mechanics: "mechanics",
+  show_anatomy: "anatomy",
   show_math: "math_studio",
   show_periodic_table: "lab",
   launch_projectile: "court",
@@ -50,7 +51,7 @@ const MODULE_WORLD: Partial<Record<Command["op"], WorldId>> = {
 };
 
 /** Home world of each module that set_module can change. */
-const MODULE_HOME: Record<ModuleName, WorldId> = { mechanics: "mechanics", maths: "math_studio", orbits: "space", fluid: "ocean", circuit: "workshop", wave: "workshop", lever: "workshop", particles: "lab", cell: "lab", reaction: "lab", population: "lab", genetics: "lab", osmosis: "lab", globe: "globe", ripple: "workshop", signal: "stage", optics: "optics", magnet: "workshop" };
+const MODULE_HOME: Record<ModuleName, WorldId> = { mechanics: "mechanics", maths: "math_studio", anatomy: "anatomy", orbits: "space", fluid: "ocean", circuit: "workshop", wave: "workshop", lever: "workshop", particles: "lab", cell: "lab", reaction: "lab", population: "lab", genetics: "lab", osmosis: "lab", globe: "globe", ripple: "workshop", signal: "stage", optics: "optics", magnet: "workshop" };
 
 /** Gravity a command sets (m/s², positive), if any. */
 function gravityOf(c: Command): number | undefined {
@@ -366,7 +367,7 @@ export function validatePlan(raw: unknown, scene: Pick<SceneSnapshot, "world" | 
 const SUBJECTS = ["physics", "chemistry", "biology", "math", "earth_space", "general_science", "other"];
 const SCOPES = ["in_scope", "too_advanced", "off_topic", "unsafe", "needs_clarification"];
 const SUPPORT = ["simulated", "visual", "text"];
-const CAPS = ["gravity", "projectile", "molecule", "atom", "orbits", "buoyancy", "graph", "geometry", "circuit", "waves", "lever", "matter", "cell", "globe", "concept", "none", "light", "signal", "mechanics", "maths", "reaction", "population", "genetics", "osmosis", "magnetism"];
+const CAPS = ["gravity", "projectile", "molecule", "atom", "orbits", "buoyancy", "graph", "geometry", "circuit", "waves", "lever", "matter", "cell", "globe", "concept", "none", "light", "signal", "mechanics", "maths", "reaction", "population", "genetics", "osmosis", "magnetism", "anatomy"];
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
 const clip = (v: unknown, max: number) => (typeof v === "string" ? (v.length > max ? `${v.slice(0, max - 1).replace(/\s+\S*$/, "")}…` : v) : v);

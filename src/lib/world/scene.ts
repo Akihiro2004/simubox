@@ -168,6 +168,7 @@ export function initialObjects(world: WorldId): SceneObject[] {
     case "stage":
     case "mechanics":
     case "math_studio":
+    case "anatomy":
     case "space":
     case "math":
     case "globe":

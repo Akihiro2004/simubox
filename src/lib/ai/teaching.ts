@@ -5,16 +5,17 @@ import type { WorldId } from "../world/catalog";
 export interface TeachingChoice { capability: CapabilityId; world: WorldId | null; reason: string; required: Command["op"][]; enforce: boolean; active: boolean; instrument?: string; wind: boolean; activeWind: boolean }
 const waterWords = /ocean|sea\b|water|ripple|tsunami|wind|gelombang air|ombak|laut|angin|riak/i;
 const operations: Partial<Record<CapabilityId, Command["op"][]>> = {
-  mechanics: ["show_mechanics"], maths: ["show_math", "plot_function", "plot_point", "plot_vector", "spawn_shape"],
+  anatomy: ["show_anatomy"], mechanics: ["show_mechanics"], maths: ["show_math", "plot_function", "plot_point", "plot_vector", "spawn_shape"],
   circuit: ["build_circuit", "show_circuit", "place_part", "set_part"], magnetism: ["show_magnets", "place_magnet"], lever: ["build_lever"], light: ["show_optics", "place_optic"],
   orbits: ["show_orbits"], buoyancy: ["set_fluid", "spawn_asset", "spawn_shape"], cell: ["show_cell"], matter: ["show_particles"], reaction: ["show_reaction"], population: ["show_population"], genetics: ["show_genetics"], osmosis: ["show_osmosis"],
 };
-const moduleFor: Partial<Record<CapabilityId, string>> = { mechanics: "mechanics", maths: "maths", waves: "ripple", circuit: "circuit", lever: "lever", light: "optics", orbits: "orbits", buoyancy: "fluid", cell: "cell", matter: "particles", reaction: "reaction", population: "population", genetics: "genetics", osmosis: "osmosis" };
+const moduleFor: Partial<Record<CapabilityId, string>> = { anatomy: "anatomy", mechanics: "mechanics", maths: "maths", waves: "ripple", circuit: "circuit", lever: "lever", light: "optics", orbits: "orbits", buoyancy: "fluid", cell: "cell", matter: "particles", reaction: "reaction", population: "population", genetics: "genetics", osmosis: "osmosis" };
 
 export function isParameterFollowUp(prompt: string, capability?: string): boolean {
   if (!/^(?:please\s+)?(?:now\s+)?(?:change|set|increase|decrease|double|halve|make|turn|ubah|naikkan|turunkan)\b/i.test(prompt)) return false;
   const parameters: Partial<Record<string, RegExp>> = {
     projectile: /angle|speed|gravity|height|ball|sudut|kecepatan|gravitasi/i,
+    anatomy: /heart rate|pulse|resistance|stiff|contractil|filling|breath|effort|airway|compliance|fibre|fiber|stimulus|hours|layer|skin|muscle|skeleton|organ|label|slow|speed|denyut|napas/i,
     mechanics: /mass|force|friction|velocity|speed|gravity|restitution|spring|length|duration|angle|massa|gaya|gesekan/i,
     waves: /wind|frequency|depth|amplitude|gap|source|barrier|angin|frekuensi/i,
     maths: /numerator|denominator|coefficient|angle|data|unit|term|value|expression/i,
@@ -67,8 +68,9 @@ export function chooseTeaching(req: Pick<PlanRequest, "prompt" | "scene" | "hist
     [/sine|cosine|tangent|trigono/i, "trigonometry"], [/transform|reflect.*axis|rotate.*origin/i, "transform"],
     [/geometry|area|volume|perimeter|luas|keliling/i, "geometry"], [/angle|sudut/i, "angles"], [/number line|garis bilangan/i, "number_line"],
   ];
+  const anatomyModel = /heart|pulse|blood|circulat|beat|jantung|darah|denyut/i.test(prompt) ? "heart" : /breath|lung|air|oxygen|inhale|exhale|respir|asthma|napas|paru|oksigen/i.test(prompt) ? "breathing" : /nerve|reflex|neuron|brain|feel|touch|pain|senses?|knee|taps?b|saraf|otak|refleks|lutut/i.test(prompt) ? "nerve" : /eat|food|meal|digest|stomach|intestin|swallow|chew|poo|liver|makan|cerna|lambung|usus/i.test(prompt) ? "digestion" : /kidney|urine|pee|bladder|drink|water|ginjal|kencing|minum/i.test(prompt) ? "kidney" : "none";
   const currentModule = moduleName ? req.scene.modules?.[moduleName] as { mode?: string } | undefined : undefined;
-  const instrument = keep && currentModule?.mode ? currentModule.mode : capability === "mechanics" ? mechanicsMode : capability === "maths" ? mathModes.find(([pattern]) => pattern.test(prompt))?.[1] ?? "arithmetic" : capability === "waves" ? required[0] : undefined;
+  const instrument = keep && currentModule?.mode ? currentModule.mode : capability === "mechanics" ? mechanicsMode : capability === "maths" ? mathModes.find(([pattern]) => pattern.test(prompt))?.[1] ?? "arithmetic" : capability === "waves" ? required[0] : capability === "anatomy" ? anatomyModel : undefined;
   const wind = capability === "waves" && /wind|angin/i.test(prompt);
   const activeWind = active && (req.scene.modules?.ripple as { windSpeed?: number } | undefined)?.windSpeed !== undefined;
   return { capability, world, required, active, instrument, wind, activeWind, enforce: !explicitStage && required.length > 0,

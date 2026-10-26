@@ -8,7 +8,7 @@ import { PROJECTILE_LIMITS } from "../engine/projectile";
 
 export type Vec3 = [number, number, number];
 
-export const WORLD_IDS = ["bedroom", "court", "lab", "park", "stage", "space", "ocean", "math", "globe", "workshop", "optics", "mechanics", "math_studio"] as const;
+export const WORLD_IDS = ["bedroom", "court", "lab", "park", "stage", "space", "ocean", "math", "globe", "workshop", "optics", "mechanics", "math_studio", "anatomy"] as const;
 export type WorldId = (typeof WORLD_IDS)[number];
 
 export interface WorldDef {
@@ -23,6 +23,12 @@ export interface WorldDef {
 }
 
 export const WORLDS: Record<WorldId, WorldDef> = {
+  anatomy: {
+    id: "anatomy", name: "Anatomy Lab",
+    description: "A bright anatomy hall with a life-size human body (real BodyParts3D meshes from medical imaging) on a turntable dais: peel skin, muscles, skeleton and organs, focus any body system, highlight a structure, and run live physiology models: a beating heart with blood pressure, breathing mechanics, a nerve impulse and reflex, and food moving through the gut.",
+    bounds: { min: [-6, 0, -5], max: [6, 6, 5] },
+    camera: { position: [3.5, 2.6, 4.4], target: [0, 1.1, 0] }, guideSpot: [-1.65, 0, 1.05],
+  },
   mechanics: {
     id: "mechanics", name: "Mechanics Lab",
     description: "An instrumented dynamics track: forces, Newton's laws, acceleration, friction, momentum, collisions, impulse, ramps, springs, energy and small-angle pendulums. Analytic SI-unit experiments with adjustable parameters.",

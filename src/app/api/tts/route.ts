@@ -10,6 +10,9 @@ const Body = z.object({
   engine: z.enum(["gemini", "speechify"]).default("gemini"),
 });
 
+// Serverless hosts cut functions off early by default; one voice line may take up to 30 s.
+export const maxDuration = 45;
+
 export async function POST(req: Request) {
   if (!aiConfigured() && !speechifyConfigured()) return Response.json({ error: "Voice needs the AI, which isn't connected here.", code: "ai_unconfigured" }, { status: 503 });
   let body: unknown;

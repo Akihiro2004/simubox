@@ -2,6 +2,7 @@
 
 import { Check, ChevronDown, RotateCcw, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { MathText } from "./formula";
 import { RevealText } from "./kit";
@@ -377,6 +378,7 @@ export function Metrics() {
 
 export function ErrorToast() {
   const err = useSim((s) => s.aiError);
+  const action = useSim((s) => s.aiErrorAction);
   const set = useSim((s) => s.set);
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-[calc(84px+env(safe-area-inset-bottom))] z-40 flex justify-center px-4 sm:bottom-[100px]">
@@ -385,7 +387,12 @@ export function ErrorToast() {
           <motion.div key={err} {...rise} className="glass pointer-events-auto flex max-w-[520px] items-center gap-3 rounded-[18px] py-2.5 pl-4 pr-2 text-[14px] font-bold" role="alert">
             <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--dot-warning)]" />
             {err}
-            <button className="btn btn-quiet grid h-8 w-8 shrink-0 place-items-center rounded-full" aria-label="Dismiss" onClick={() => set({ aiError: null })}>
+            {action === "buy_credits" && (
+              <Link href="/wallet" className="btn btn-accent shrink-0 rounded-full px-3.5 py-1.5 text-[14px] font-extrabold">
+                Get credits
+              </Link>
+            )}
+            <button className="btn btn-quiet grid h-8 w-8 shrink-0 place-items-center rounded-full" aria-label="Dismiss" onClick={() => set({ aiError: null, aiErrorAction: null })}>
               <X size={16} />
             </button>
           </motion.div>

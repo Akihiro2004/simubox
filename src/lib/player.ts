@@ -22,7 +22,8 @@ import { magnetPreset } from "./engine/magnet";
 import { loadCompound } from "./engine/chemistry";
 import type { ShapeKind } from "./engine/geometry";
 import { EMPTY_TABLE } from "./periodic-table";
-import { DEFAULT_MECHANICS, DEFAULT_MATH, MechanicsFields, MathFields, mathSetupError, type MathState } from "./experiments";
+import anatomyBody from "./world/anatomy.generated.json";
+import { AnatomyFields, anatomySetup, DEFAULT_ANATOMY, DEFAULT_MECHANICS, DEFAULT_MATH, MechanicsFields, MathFields, mathSetupError, type MathState } from "./experiments";
 
 let controller: AbortController | null = null;
 let skipLine: (() => void) | null = null;
@@ -284,6 +285,8 @@ let subject: string | Vec3 | null = null;
 function subjectOf(c: Command): string | Vec3 | null {
   switch (c.op) {
     case "show_mechanics": return [0, 1, 0];
+    case "show_anatomy": return c.highlight ? anatomyPoint(c.highlight) : [0, 1.1, 0];
+    case "set_module": return c.module === "anatomy" && typeof c.set.highlight === "string" ? anatomyPoint(c.set.highlight) : null;
     case "show_math": return [0, 2, 0];
     case "spawn_asset":
     case "spawn_primitive":
@@ -308,6 +311,12 @@ function subjectOf(c: Command): string | Vec3 | null {
     default:
       return null;
   }
+}
+
+/** A structure's centre on the Anatomy Lab dais. */
+function anatomyPoint(id: string): Vec3 {
+  const c = (anatomyBody.structures as Record<string, { center: number[] }>)[id]?.center ?? [0, .85, 0];
+  return [c[0], c[1] + .25, c[2]];
 }
 
 /** Points that must be visible for a thing: its box corners, roughly. */
@@ -356,6 +365,12 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       const setup = { ...DEFAULT_MECHANICS, ...MechanicsFields.partial().parse(Object.fromEntries(Object.entries(c).filter(([key]) => key !== "op"))) };
       setModules({ mechanics: setup });
       st().set({ capability: "mechanics", paused: false, gravity: [0, -setup.gravity, 0] });
+      return;
+    }
+    case "show_anatomy": {
+      if (s.world !== "anatomy") s.loadWorld("anatomy");
+      setModules({ anatomy: anatomySetup(st().modules.anatomy ?? DEFAULT_ANATOMY, AnatomyFields.partial().parse(Object.fromEntries(Object.entries(c).filter(([key]) => key !== "op"))), true) });
+      st().set({ capability: "anatomy" });
       return;
     }
     case "show_math": {
@@ -652,6 +667,9 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
         }
         case "maths":
           setMaths({ ...(m.maths ?? DEFAULT_MATH), ...MODULE_FIELDS.maths.parse(c.set) });
+          break;
+        case "anatomy":
+          setModules({ anatomy: anatomySetup(m.anatomy ?? DEFAULT_ANATOMY, MODULE_FIELDS.anatomy.parse(c.set), false) });
           break;
         case "orbits":
           setModules({ orbits: { ...(m.orbits ?? MODULE_DEFAULTS.orbits), ...MODULE_FIELDS.orbits.parse(c.set) } });

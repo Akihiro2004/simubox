@@ -23,7 +23,8 @@ export default function Credits() {
         <section className="space-y-2">
           <h2 className="text-[19px] font-extrabold text-ink">Credits</h2>
           <ul className="list-disc space-y-1 pl-5">
-            <li>3D models: every object, room and character was built for SimuBox from simple shapes in code. No third-party model files are used.</li>
+            <li>3D models: every object, room and character was built for SimuBox from simple shapes in code, except the human body in the Anatomy Lab (below).</li>
+            <li>Human body (Anatomy Lab): BodyParts3D, © The Database Center for Life Science, licensed under CC Attribution 4.0 International (the 2011 mesh files state CC Attribution-Share Alike 2.1 Japan). Simplified and combined for SimuBox; the derived body file is shared under the same terms.</li>
             <li>Molecule geometry: NIST Computational Chemistry Comparison and Benchmark Database (CCCBDB), experimental values.</li>
             <li>Earth sky imagery: NASA Goddard Space Flight Center / Reto Stöckli, Blue Marble land, ocean, ice and cloud composite.</li>
             <li>Built with Next.js, React Three Fiber, drei and Rapier (MIT), three.js (MIT), Zod (MIT), Zustand (MIT), Lucide icons (ISC), the Google Gen AI SDK (Apache 2.0) and Firebase (Apache 2.0).</li>

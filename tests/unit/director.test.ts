@@ -39,7 +39,8 @@ describe("prompt", () => {
     // and by 500 for the reaction, population, genetics and osmosis labs (after compacting the
     // placeholder list and the simulated-capability rule to make most of the room).
     // +3,500 for the circuit board (15 part kinds, place/set/remove commands, per-part readings) and the magnet lab (both trimmed to the minimum).
-    expect(p.length).toBeLessThan(65_000);
+    // +2,000 for the Anatomy Lab (show_anatomy fields, physiology placeholders, one compact guidance line).
+    expect(p.length).toBeLessThan(67_000);
   });
 });
 

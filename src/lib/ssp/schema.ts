@@ -13,7 +13,7 @@ import { ENV_PRESETS, LIGHTS } from "../environment";
 import { PeriodicTableFields } from "../periodic-table";
 import { LIGHT_COLOR_IDS, OPTIC_KINDS, OPTIC_MATERIAL_IDS, OPTIC_PRESETS, SOURCE_KINDS, TABLE } from "../engine/optics";
 import { PLAN, SIGNAL_KIND_IDS, SIGNAL_LAYOUTS, WALL_MATERIALS } from "../engine/waves";
-import { MechanicsFields, MathFields } from "../experiments";
+import { AnatomyFields, MechanicsFields, MathFields } from "../experiments";
 import { BOARD_COLS, BOARD_ROWS, CIRCUIT_PRESET_IDS, LED_COLORS, PART_KINDS } from "../engine/circuit";
 import { MAGNET_ITEM_KINDS, MAGNET_MATERIAL_IDS, MAGNET_PRESET_IDS, TABLE_HALF, TEST_MATERIAL_IDS } from "../engine/magnet";
 import { EQUATION } from "../engine/reactions";
@@ -76,12 +76,17 @@ export const PLACEHOLDERS = [
   "incidence_angle", "reflection_angle", "refraction_angle", "critical_angle", "refractive_index", "light_speed_in",
   "deviation", "spread_angle", "focal_length", "object_distance", "image_distance", "magnification", "image_type",
   "beam_wavelength", "screen_power", "reflectance",
+  "heart_rate", "blood_pressure", "systolic_pressure", "diastolic_pressure", "mean_pressure", "stroke_volume", "cardiac_output", "ejection_fraction", "end_diastolic_volume", "end_systolic_volume", "pulse_wave_speed", "beats_per_day",
+  "tidal_volume", "minute_ventilation", "alveolar_ventilation", "breath_rate", "peak_airflow", "lung_time_constant", "trapped_air", "diaphragm_travel",
+  "membrane_peak", "nerve_fired", "conduction_speed", "reflex_time", "food_location", "hours_after_meal", "digestion_total",
+  "blood_oxygen", "blood_co2", "oxygen_pressure", "oxygen_used", "co2_made", "urine_per_day", "filtered_per_day", "water_reabsorbed", "urine_concentration", "bladder_fill_time",
 ] as const;
 /** Optics placeholders that can name one element, e.g. {{refraction_angle:block}}. */
 export const OPTIC_ARG_PLACEHOLDERS = ["incidence_angle", "reflection_angle", "refraction_angle", "critical_angle", "refractive_index", "light_speed_in", "focal_length", "screen_power", "reflectance"] as const;
 /** Placeholders that take an argument, written {{name:arg}}. */
 export const ARG_PLACEHOLDERS = {
   volume: "shape id",
+  organ_mass: "Anatomy Lab structure id (typical adult mass, ICRP reference values)",
   surface_area: "shape id",
   float_fraction: "object id",
   mass: "object id (its real mass in the physics engine)",
@@ -112,6 +117,7 @@ export const ARG_PLACEHOLDERS = {
 export const MODULE_FIELDS = {
   mechanics: MechanicsFields.partial(),
   maths: MathFields.partial(),
+  anatomy: AnatomyFields.partial(),
   orbits: z.strictObject({ mode: z.enum(["solar_system", "earth_moon", "seasons"]), planets: z.array(z.enum(PLANET_IDS)).min(1).max(8), focus: z.enum([...PLANET_IDS, "sun", "moon"]).nullable(), daysPerSecond: num(0, 400), labels: z.boolean(), distances: z.partialRecord(z.enum(PLANET_IDS), num(0.1, 60)) }).partial(),
   fluid: z.strictObject({ fluid: z.enum(FLUID_IDS) }).partial(),
   circuit: z.strictObject({ layout: z.enum(["series", "parallel"]), voltage: num(0, 24), bulbs: z.number().int().min(1).max(4), resistanceOhms: num(1, 100_000), switchClosed: z.boolean(), brokenBulbs: z.array(z.number().int().min(1).max(4)).max(4), flow: z.enum(["conventional", "electron"]), readings: z.boolean() }).partial(),
@@ -134,6 +140,7 @@ export const MODULE_NAMES = Object.keys(MODULE_FIELDS) as [ModuleName, ...Module
 
 export const Command = z.discriminatedUnion("op", [
   z.object({ op: z.literal("show_mechanics"), ...MechanicsFields.partial().shape }),
+  z.object({ op: z.literal("show_anatomy"), ...AnatomyFields.partial().shape }),
   z.object({ op: z.literal("show_math"), ...MathFields.partial().shape }),
   z.object({ op: z.literal("show_periodic_table"), ...PeriodicTableFields, focus: z.boolean().optional().describe("face the lab wall table; defaults true") }),
   z.object({ op: z.literal("load_world"), world: z.enum(WORLD_IDS) }),
@@ -431,7 +438,7 @@ export const Step = z.object({
 });
 export type Step = z.infer<typeof Step>;
 
-export const CAPABILITIES = ["gravity", "projectile", "molecule", "atom", "orbits", "buoyancy", "graph", "geometry", "circuit", "waves", "lever", "matter", "cell", "globe", "concept", "none", "light", "signal", "mechanics", "maths", "reaction", "population", "genetics", "osmosis", "magnetism"] as const;
+export const CAPABILITIES = ["gravity", "projectile", "molecule", "atom", "orbits", "buoyancy", "graph", "geometry", "circuit", "waves", "lever", "matter", "cell", "globe", "concept", "none", "light", "signal", "mechanics", "maths", "reaction", "population", "genetics", "osmosis", "magnetism", "anatomy"] as const;
 export type CapabilityId = (typeof CAPABILITIES)[number];
 
 export const ScenePlan = z.object({

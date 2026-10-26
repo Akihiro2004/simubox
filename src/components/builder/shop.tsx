@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { Check, Coins, Search, Sparkles, X } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ASSETS } from "@/lib/world/catalog";
 import { CATEGORIES, DISCOVERIES, DISCOVERY_BY_ID, DISCOVERY_REWARD, type Category, type Discovery } from "@/lib/builder/catalog";
@@ -15,12 +16,13 @@ const AssetPreview = dynamic(() => import("./asset-preview"), { ssr: false, load
 function DiscoveryQuestion({ item }: { item: Discovery }) {
   const earned = useBuilder(s => s.wallet.earned.includes(item.asset));
   const answer = useBuilder(s => s.answer);
+  const signedIn = useBuilder(s => s.account?.signedIn ?? false);
   const [result, setResult] = useState<{ picked: number; correct: boolean; reward: number } | null>(null);
   return <section className={styles.discovery} aria-label="Discovery question">
-    <div className={styles.eyebrow}><Sparkles size={14} /> {earned ? "Discovery complete" : `Discover & earn ${DISCOVERY_REWARD} coins`}</div>
+    <div className={styles.eyebrow}><Sparkles size={14} /> {earned ? "Discovery complete" : signedIn ? `Discover & earn ${DISCOVERY_REWARD} credit` : "Discover (sign in to earn credits)"}</div>
     <h3>{item.question}</h3>
-    <div className={styles.answers}>{item.choices.map((choice, i) => <button key={choice} className={result?.picked === i ? result.correct ? styles.correct : styles.incorrect : ""} disabled={earned} onClick={() => setResult({ picked: i, ...answer(item.asset, i) })}>{earned && item.answer === i && <Check size={15} />} {choice}</button>)}</div>
-    <div aria-live="polite">{(result || earned) && <p className={styles.feedback}>{result && !result.correct ? "Good prediction. Try another answer. " : result?.reward ? `You earned ${result.reward} coins. ` : "You already earned these coins. "}{item.explanation}</p>}</div>
+    <div className={styles.answers}>{item.choices.map((choice, i) => <button key={choice} className={result?.picked === i ? result.correct ? styles.correct : styles.incorrect : ""} disabled={earned} onClick={async () => setResult({ picked: i, ...(await answer(item.asset, i)) })}>{earned && item.answer === i && <Check size={15} />} {choice}</button>)}</div>
+    <div aria-live="polite">{(result || earned) && <p className={styles.feedback}>{result && !result.correct ? "Good prediction. Try another answer. " : result?.reward ? `You earned ${result.reward} credit. ` : result && !signedIn ? "Correct! " : "You already earned this credit. "}{item.explanation}</p>}</div>
   </section>;
 }
 
@@ -50,7 +52,7 @@ export default function Shop() {
     <div className={styles.shop}>
       <header className={styles.shopHeader}>
         <div><div className={styles.eyebrow}>YOUR WORLD, YOUR IDEAS</div><h2 id="asset-shop-title">Build & Discover</h2><p>A little curiosity. A world of possibilities.</p></div>
-        <div className={styles.headerTools}><span className={styles.coinBalance} aria-label={`${wallet.coins} play coins`}><Coins size={18} /> <strong>{wallet.coins}</strong></span><button className={styles.iconButton} aria-label="Close asset shop" onClick={close}><X size={20} /></button></div>
+        <div className={styles.headerTools}><span className={styles.coinBalance} aria-label={`${wallet.credits} credits`}><Coins size={18} /> <strong>{wallet.credits}</strong></span><Link href="/wallet" className="btn btn-accent grid h-10 place-items-center rounded-full px-4 text-[14px] font-extrabold">Get credits</Link><button className={styles.iconButton} aria-label="Close asset shop" onClick={close}><X size={20} /></button></div>
       </header>
       <div className={styles.shopBody}>
         <section className={styles.catalog} aria-label="Asset catalog">
@@ -63,14 +65,14 @@ export default function Shop() {
             <div className={styles.thumbnail}><AssetThumb item={d} /></div><strong>{ASSETS[d.asset].name}</strong><span>{wallet.owned.includes(d.asset) ? <><Check size={12} /> In collection</> : <><Coins size={12} /> {d.price}</>}</span>
           </button>)}</div>
           {!items.length && <p className={styles.empty}>No items here yet. Try another category or search.</p>}
-          <p className={styles.localNote}>Play coins only. No payments. Your coins and collection stay in this browser.</p>
+          <p className={styles.localNote}>Unlocks use the same credits as your questions to Simu. Your collection is saved to your account.</p>
         </section>
         <aside className={styles.itemDetails} aria-label="Selected asset">
           <div className={styles.preview}><AssetPreview asset={item.asset} /><span>{item.illustration ? "Illustration" : ASSETS[item.asset].defaultPhysics === "dynamic" ? "Physics object" : "Build & arrange"}</span></div>
           <div className={styles.detailBody}>
             <div className={styles.eyebrow}>{item.category}</div><h3 className={styles.itemTitle}>{ASSETS[item.asset].name}</h3><p className={styles.tagline}>{item.tagline}</p>
-            <button disabled={!ready || (!owned && wallet.coins < item.price)} className={styles.primary} onClick={() => { if (owned) placeAsset(item.asset); else buy(item.asset); }}>{owned ? "Place in my world" : `Unlock for ${item.price} coins`}</button>
-            <p className={styles.purchaseNote}>{owned ? "Yours to reuse. Place as many as your map has room for." : wallet.coins < item.price ? "Try a discovery question below to earn coins." : "Unlock once. Place again for free. No real money."}</p>
+            <button disabled={!ready || (!owned && wallet.credits < item.price)} className={styles.primary} onClick={() => { if (owned) placeAsset(item.asset); else buy(item.asset); }}>{owned ? "Place in my world" : `Unlock for ${item.price} credits`}</button>
+            <p className={styles.purchaseNote}>{owned ? "Yours to reuse. Place as many as your map has room for." : wallet.credits < item.price ? <>Not enough credits. <Link href="/wallet" className="font-extrabold underline">Get more</Link> or answer a discovery question below.</> : "Unlock once. Place again for free."}</p>
             <p role="status" className={styles.notice}>{notice}</p>
             <section className={styles.tryIt}><h4>Try this in your world</h4><p>{item.tryIt}</p></section>
             {item.illustration && <p className={styles.limit}>{item.illustration}</p>}

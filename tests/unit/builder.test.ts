@@ -10,8 +10,9 @@ vi.hoisted(() => {
 import { ASSETS, LIMITS, WORLD_IDS, WORLDS } from "@/lib/world/catalog";
 import { assetObject, initialObjects } from "@/lib/world/scene";
 import { LEARNING_ASSETS, LEARNING_PARTS } from "@/lib/world/learning-assets";
-import { DISCOVERIES, DISCOVERY_REWARD, STARTER_COINS } from "@/lib/builder/catalog";
-import { answerDiscovery, freshWallet, readWallet, unlock } from "@/lib/builder/economy";
+import { DISCOVERIES, DISCOVERY_REWARD } from "@/lib/builder/catalog";
+import { answerDiscovery, freshAccount, readAccount, unlock } from "@/lib/builder/economy";
+import { SIGNUP_BONUS } from "@/lib/credits";
 import { mapSummaries, parseLayout, readMaps, writeMap } from "@/lib/builder/maps";
 import { boundPosition, findPlacement } from "@/lib/builder/placement";
 import { beginEditing, duplicateObject, editObject, finishEditing, placeAsset, removeFromMap, undoEdit, useEditHistory } from "@/lib/builder/actions";
@@ -25,7 +26,7 @@ import { saveExperiment, restoreExperiment } from "@/lib/saves";
 beforeEach(() => {
   localStorage.clear();
   useSim.setState({ ...freshScene("stage"), messages: [], experimentId: null, lastPlan: null, selectedId: null, aiStatus: "idle" });
-  useBuilder.setState({ wallet: freshWallet(), ready: true, editing: false, open: false });
+  useBuilder.setState({ wallet: { credits: SIGNUP_BONUS, owned: freshAccount(0, "x").owned, earned: [] }, ready: true, editing: false, open: false });
   useEditHistory.setState({ past: [], future: [] });
 });
 
@@ -63,33 +64,35 @@ describe("learning asset contract", () => {
       expect(item.tryIt.length).toBeGreaterThan(30);
       if (ASSETS[item.asset].tags.includes("illustration")) expect(item.illustration).toBeTruthy();
     }
-    expect(STARTER_COINS + DISCOVERIES.length * DISCOVERY_REWARD).toBeGreaterThanOrEqual(DISCOVERIES.reduce((sum, item) => sum + item.price, 0));
+    // Free credits alone never unlock the whole shop.
+    expect(SIGNUP_BONUS + DISCOVERIES.length * DISCOVERY_REWARD).toBeLessThan(DISCOVERIES.reduce((sum, item) => sum + item.price, 0));
   });
 });
 
-describe("play coin ownership", () => {
+describe("credit ownership", () => {
   it("charges exactly once for a reusable unlock and rejects insufficient funds", () => {
-    const w = freshWallet();
+    const w = freshAccount(SIGNUP_BONUS, "test");
     const purchase = unlock(w, "marble");
-    expect(purchase.wallet.coins).toBe(w.coins - 30);
-    expect(unlock(purchase.wallet, "marble").wallet).toBe(purchase.wallet);
-    expect(unlock({ ...w, coins: 0 }, "marble").error).toBeTruthy();
+    expect(purchase.account.credits).toBe(w.credits - DISCOVERIES.find(d => d.asset === "marble")!.price);
+    expect(purchase.account.history[0].amount).toBeLessThan(0);
+    expect(unlock(purchase.account, "marble").account).toBe(purchase.account);
+    expect(unlock({ ...w, credits: 0 }, "marble").error).toBeTruthy();
     expect(w.owned).not.toContain("marble");
   });
   it("rewards a correct discovery once, without charging for mistakes or requiring ownership", () => {
-    const item = DISCOVERIES.find(d => d.asset === "marble")!, w = freshWallet();
-    expect(answerDiscovery(w, item.asset, -1)).toMatchObject({ wallet: w, correct: false, reward: 0 });
-    expect(answerDiscovery(w, item.asset, (item.answer + 1) % 3).wallet).toBe(w);
+    const item = DISCOVERIES.find(d => d.asset === "marble")!, w = freshAccount(SIGNUP_BONUS, "test");
+    expect(answerDiscovery(w, item.asset, -1)).toMatchObject({ account: w, correct: false, reward: 0 });
+    expect(answerDiscovery(w, item.asset, (item.answer + 1) % 3).account).toBe(w);
     const good = answerDiscovery(w, item.asset, item.answer);
     expect(good.reward).toBe(DISCOVERY_REWARD);
-    expect(good.wallet.coins).toBe(w.coins + DISCOVERY_REWARD);
-    expect(answerDiscovery(good.wallet, item.asset, item.answer).reward).toBe(0);
-    expect(good.wallet.owned).not.toContain(item.asset);
+    expect(good.account.credits).toBe(w.credits + DISCOVERY_REWARD);
+    expect(answerDiscovery(good.account, item.asset, item.answer).reward).toBe(0);
+    expect(good.account.owned).not.toContain(item.asset);
   });
-  it("recovers from malformed persisted wallet data and deduplicates ownership", () => {
-    expect(readWallet({ coins: -9, owned: ["does_not_exist"] })).toEqual(freshWallet());
-    expect(readWallet({ ...freshWallet(), coins: Infinity })).toEqual(freshWallet());
-    const w = readWallet({ coins: 10, owned: ["marble", "marble"], earned: ["marble", "marble"] });
+  it("rejects malformed stored accounts and deduplicates ownership", () => {
+    expect(readAccount({ credits: -9, owned: ["does_not_exist"] })).toBeNull();
+    expect(readAccount({ ...freshAccount(0, "x"), credits: Infinity })).toBeNull();
+    const w = readAccount({ credits: 10, owned: ["marble", "marble"], earned: ["marble", "marble"] })!;
     expect(w.owned.filter(id => id === "marble")).toHaveLength(1);
     expect(w.earned).toEqual(["marble"]);
     expect(w.owned).toContain("domino");
@@ -155,9 +158,9 @@ describe("editor, persistence and AI integration", () => {
   });
   it("does not charge on placement, blocks locked assets, and reserves room for teaching props", () => {
     expect(placeAsset("marble")).toBeNull();
-    const before = useBuilder.getState().wallet.coins;
+    const before = useBuilder.getState().wallet.credits;
     placeAsset("domino"); placeAsset("domino");
-    expect(useBuilder.getState().wallet.coins).toBe(before);
+    expect(useBuilder.getState().wallet.credits).toBe(before);
     const objects = Object.fromEntries(Array.from({ length: LIMITS.maxObjects - 4 }, (_, i) => [`piece_${i}`, assetObject(`piece_${i}`, "domino", [0, .325, 0])]));
     useSim.setState({ objects });
     expect(placeAsset("domino")).toBeNull();

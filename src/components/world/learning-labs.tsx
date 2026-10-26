@@ -13,12 +13,19 @@ import { surfaceBump } from "./surfaces";
 
 const WOOD = "#ba936a", INK = "#36585a", CREAM = "#eee7d6";
 
-function Box({ size, at, color, radius = .025, shadow = true }: { size: Vec3; at: Vec3; color: string; radius?: number; shadow?: boolean }) {
+export function Box({ size, at, color, radius = .025, shadow = true }: { size: Vec3; at: Vec3; color: string; radius?: number; shadow?: boolean }) {
   return <RoundedBox args={size} position={at} radius={Math.min(radius, ...size.map(v => v / 3))} smoothness={2} castShadow={shadow} receiveShadow><Mat c={color} /></RoundedBox>;
 }
 
+/** Wall colours: plaster, dado panel, skirting/rails, battens (null hides the battens). */
+export type WallTone = { wall: string; dado: string; skirting: string; rail: string; batten: string | null };
+const TONES: Record<"maths" | "mechanics", WallTone> = {
+  maths: { wall: "#e6e7ed", dado: "#b7c1d2", skirting: "#6c778f", rail: CREAM, batten: null },
+  mechanics: { wall: "#eae3d4", dado: "#a4b7ad", skirting: INK, rail: CREAM, batten: "#d8e0cf" },
+};
+
 /** The same camera-facing cutaway rule as the other furnished rooms. */
-function Wall({ side, maths, animate, children }: { side: "back" | "front" | "left" | "right"; maths: boolean; animate: boolean; children?: ReactNode }) {
+export function Wall({ side, maths, tone = TONES[maths ? "maths" : "mechanics"], animate, children }: { side: "back" | "front" | "left" | "right"; maths?: boolean; tone?: WallTone; animate: boolean; children?: ReactNode }) {
   const scaler = useRef<Group>(null), decor = useRef<Group>(null), hidden = useRef(false);
   const back = side === "back", front = side === "front", left = side === "left";
   const length = back || front ? 12.4 : 10.4;
@@ -32,11 +39,11 @@ function Wall({ side, maths, animate, children }: { side: "back" | "front" | "le
   });
   return <group position={position} rotation={[0, back ? 0 : front ? Math.PI : left ? Math.PI / 2 : -Math.PI / 2, 0]}>
     <group ref={scaler}>
-      <Box size={[length, 4.8, .24]} at={[0, 2.4, 0]} color={maths ? "#e6e7ed" : "#eae3d4"} radius={.06} shadow={false} />
-      <Box size={[length - .25, .86, .04]} at={[0, .57, .145]} color={maths ? "#b7c1d2" : "#a4b7ad"} shadow={false} />
-      {[.13, 1.04, 4.63].map(y => <Box key={y} size={[length - .15, y === .13 ? .22 : .09, .1]} at={[0, y, .17]} color={y === .13 ? maths ? "#6c778f" : INK : CREAM} shadow={false} />)}
-      {!maths && <Instances limit={15} frames={1}>
-        <boxGeometry args={[.035, .72, .025]} /><meshStandardMaterial color="#d8e0cf" roughness={.7} />
+      <Box size={[length, 4.8, .24]} at={[0, 2.4, 0]} color={tone.wall} radius={.06} shadow={false} />
+      <Box size={[length - .25, .86, .04]} at={[0, .57, .145]} color={tone.dado} shadow={false} />
+      {[.13, 1.04, 4.63].map(y => <Box key={y} size={[length - .15, y === .13 ? .22 : .09, .1]} at={[0, y, .17]} color={y === .13 ? tone.skirting : tone.rail} shadow={false} />)}
+      {tone.batten && <Instances limit={15} frames={1}>
+        <boxGeometry args={[.035, .72, .025]} /><meshStandardMaterial color={tone.batten} roughness={.7} />
         {Array.from({ length: Math.floor(length / .85) }, (_, i) => <Instance key={i} position={[-length / 2 + .5 + i * .85, .59, .18]} />)}
       </Instances>}
       <group ref={decor}>{children}</group>
@@ -44,7 +51,7 @@ function Wall({ side, maths, animate, children }: { side: "back" | "front" | "le
   </group>;
 }
 
-function Window({ x }: { x: number }) {
+export function Window({ x }: { x: number }) {
   return <group position={[x, 2.7, .2]}>
     <Box size={[2.25, 2.3, .13]} at={[0, 0, 0]} color={WOOD} />
     <mesh position={[0, 0, .075]}><planeGeometry args={[2.02, 2.07]} /><meshBasicMaterial color="#b9d7dc" /></mesh>
@@ -56,7 +63,7 @@ function Window({ x }: { x: number }) {
   </group>;
 }
 
-function Plant({ at }: { at: Vec3 }) {
+export function Plant({ at }: { at: Vec3 }) {
   return <group position={at}>
     <mesh castShadow position={[0, .16, 0]}><cylinderGeometry args={[.23, .17, .32, 16]} /><Mat c="#d1af87" /></mesh>
     <mesh position={[0, .33, 0]} rotation={[-Math.PI / 2, 0, 0]}><circleGeometry args={[.2, 16]} /><Mat c="#655e45" /></mesh>
@@ -132,7 +139,7 @@ function Poster({ x, maths }: { x: number; maths: boolean }) {
   </group>;
 }
 
-function Stool({ at }: { at: Vec3 }) {
+export function Stool({ at }: { at: Vec3 }) {
   return <group position={at}>
     <mesh castShadow position={[0, .65, 0]}><cylinderGeometry args={[.38, .38, .12, 24]} /><Mat c={WOOD} /></mesh>
     {[-.22, .22].flatMap(x => [-.22, .22].map(z => <Box key={`${x}${z}`} size={[.075, .6, .075]} at={[x, .3, z]} color={INK} />))}

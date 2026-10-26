@@ -7,7 +7,38 @@ import { matchCapabilities } from "./capabilities";
 
 const base = { schemaVersion: 1 as const, scope: "in_scope" as const, language: "en" as const };
 
-export const FIXTURES: Record<"gravity" | "projectile" | "molecule" | "mechanics" | "maths" | "waves", ScenePlan> = {
+export const FIXTURES: Record<"gravity" | "projectile" | "molecule" | "mechanics" | "maths" | "waves" | "anatomy" | "digestion" | "breathing", ScenePlan> = {
+  digestion: {
+    ...base, title: "Where your lunch goes", subject: "biology", supportLevel: "simulated", capability: "anatomy",
+    reply: "This built-in Anatomy Lab demo follows a meal through a real body. The whole trip takes {{digestion_total}} on average.",
+    steps: [
+      { title: "Swallow", commands: [{ op: "show_anatomy", system: "digestive", instrument: "digestion", hoursAfterMeal: 0.005, playing: false, highlight: "esophagus" }, { op: "speak", speaker: "simu", text: "This is a built-in demo. After you chew and swallow, muscles in the oesophagus squeeze the food down to your stomach in a few seconds." }] },
+      { title: "Stomach", commands: [{ op: "set_module", module: "anatomy", set: { hoursAfterMeal: 1, highlight: "stomach" } }, { op: "speak", speaker: "simu", text: "The food is now in the {{food_location}}. Acid and enzymes churn it into a thick soup for a few hours." }] },
+      { title: "Small intestine", commands: [{ op: "set_module", module: "anatomy", set: { hoursAfterMeal: 5, highlight: "small_intestine" } }, { op: "speak", speaker: "simu", text: "In the {{food_location}}, most nutrients pass into your blood. The liver, about {{organ_mass:liver}}, sends bile to help digest fat." }] },
+      { title: "Large intestine", commands: [{ op: "ask_question", question: "What does the large intestine mostly take back into the body?", choices: ["Water", "Protein", "Sugar"], answerIndex: 0, explanation: "Most nutrients are absorbed earlier; the large intestine takes back water and salts." }, { op: "set_module", module: "anatomy", set: { hoursAfterMeal: 20, highlight: "large_intestine", playing: true } }, { op: "speak", speaker: "simu", text: "Now it is in the {{food_location}}, where water goes back into the body and gut bacteria break down fibre." }] },
+    ], assumptions: ["Typical healthy-adult transit times for a mixed meal."], limitations: ["This is a built-in example, not a new AI-generated answer.", "Real meals vary a lot: fatty food leaves the stomach more slowly."],
+    followUps: ["How does my body use air to breathe?", "How does my heart pump blood?", "Why do we pee more when we drink lots of water?"],
+  },
+  breathing: {
+    ...base, title: "How you breathe", subject: "biology", supportLevel: "simulated", capability: "anatomy",
+    reply: "This built-in Anatomy Lab demo runs a lung model. Each quiet breath moves {{tidal_volume}} of air, and {{blood_oxygen}}.",
+    steps: [
+      { title: "Air goes in", commands: [{ op: "show_anatomy", system: "respiratory", instrument: "breathing", highlight: "diaphragm", breathsPerMin: 12, effortCmH2O: 5.5, metabolicRate: 1 }, { op: "speak", speaker: "simu", text: "This is a built-in demo. When the diaphragm under your lungs tightens, it moves down {{diaphragm_travel}} and pulls in {{tidal_volume}} of air." }] },
+      { title: "Into the blood", commands: [{ op: "set_module", module: "anatomy", set: { highlight: "lung_right" } }, { op: "speak", speaker: "simu", text: "The air goes down the windpipe into millions of tiny air sacs. Oxygen crosses into the blood: {{blood_oxygen}}. Carbon dioxide comes out the other way." }] },
+      { title: "Running", commands: [{ op: "ask_question", question: "When you run, what happens to your breathing?", choices: ["Faster and deeper", "Slower", "It stops"], answerIndex: 0, explanation: "Your muscles use more oxygen and make more carbon dioxide." }, { op: "set_module", module: "anatomy", set: { breathsPerMin: 30, effortCmH2O: 16, metabolicRate: 6 } }, { op: "speak", speaker: "simu", text: "Running, your muscles use {{oxygen_used}} of oxygen. You breathe {{minute_ventilation}}, and your blood still stays well supplied: {{blood_oxygen}}." }] },
+    ], assumptions: ["Healthy adult lungs; one-compartment lung mechanics."], limitations: ["This is a built-in example, not a new AI-generated answer."],
+    followUps: ["What happens in an asthma attack?", "How does my heart carry the oxygen?", "What happens after we eat?"],
+  },
+  anatomy: {
+    ...base, title: "How your heart pumps", subject: "biology", supportLevel: "simulated", capability: "anatomy",
+    reply: "This built-in Anatomy Lab demo runs a heart model. At rest it pumps {{stroke_volume}} with each beat, about {{cardiac_output}}, at a blood pressure of {{blood_pressure}}.",
+    steps: [
+      { title: "Peel back the skin", commands: [{ op: "show_anatomy", system: "all", depth: 2, highlight: "heart", instrument: "none" }, { op: "speak", speaker: "simu", text: "This is a built-in demo with a real, life-size human body. Under the skin and ribs, the heart sits in the middle of your chest, a little to the left." }] },
+      { title: "Start the heartbeat", commands: [{ op: "show_anatomy", instrument: "heart", highlight: "heart", heartRateBpm: 72 }, { op: "speak", speaker: "simu", text: "Each squeeze pushes {{stroke_volume}} of blood into the aorta. Watch the red pulse race down the arteries at {{pulse_wave_speed}}. The monitor shows a blood pressure of {{blood_pressure}}." }] },
+      { title: "Exercise", commands: [{ op: "ask_question", question: "When you run, what happens to the blood your heart pumps each minute?", choices: ["It goes up a lot", "It stays the same", "It goes down"], answerIndex: 0, explanation: "Your heart beats faster and harder, and your muscles' blood vessels widen." }, { op: "set_module", module: "anatomy", set: { heartRateBpm: 150, contractility: 1.8, resistance: 0.45, fillingMmHg: 14 } }, { op: "speak", speaker: "simu", text: "Now the heart beats {{heart_rate}} and pumps {{cardiac_output}}, several times more than at rest." }] },
+    ], assumptions: ["A healthy adult heart; only the left side is modelled."], limitations: ["This is a built-in example, not a new AI-generated answer."],
+    followUps: ["How do lungs fill with air?", "Why does the knee jerk when the doctor taps it?", "Where does food go after I swallow?"],
+  },
   mechanics: {
     ...base, title: "Force, mass and acceleration", subject: "physics", supportLevel: "simulated", capability: "mechanics",
     reply: "This built-in Mechanics Lab demo compares the same push on two different masses. Net force divided by mass gives acceleration: {{mechanics_acceleration}} after the change.",
@@ -154,6 +185,7 @@ export const FIXTURES: Record<"gravity" | "projectile" | "molecule" | "mechanics
 
 export function pickFixture(prompt: string): ScenePlan | null {
   const cap = matchCapabilities(prompt)[0];
+  if (cap === "anatomy") return /eat|food|meal|digest|stomach|swallow|makan|cerna/i.test(prompt) ? FIXTURES.digestion : /breath|lung|air|oxygen|napas|paru/i.test(prompt) ? FIXTURES.breathing : FIXTURES.anatomy;
   if (cap === "gravity" || cap === "projectile" || cap === "molecule" || cap === "mechanics" || cap === "maths" || cap === "waves") return FIXTURES[cap];
   return null;
 }

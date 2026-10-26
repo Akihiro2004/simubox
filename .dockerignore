@@ -9,3 +9,4 @@ test-results
 playwright-report
 *.md
 SIMUBOX_UI_REFERENCE.png
+.data

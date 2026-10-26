@@ -1,5 +1,5 @@
 import "server-only";
-import { getApps, initializeApp } from "firebase-admin/app";
+import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 
 // ponytail: in-memory buckets are per Cloud Run instance; with max-instances
@@ -22,11 +22,28 @@ export function rateLimit(key: string, perMinute: number, burst: number): boolea
   return true;
 }
 
+/**
+ * The caller's address. Clients can put anything at the start of
+ * X-Forwarded-For, so this takes the last entry, which Cloud Run's front end
+ * appends. ponytail: assumes one trusted proxy; behind another load balancer, skip its hops too.
+ */
 export function clientIp(req: Request): string {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "local";
+  return req.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim() || req.headers.get("x-real-ip") || "local";
 }
 
 const projectId = (process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID);
+/**
+ * The one Firebase Admin app. Google Cloud supplies its own identity; other
+ * hosts (Vercel, Lambda...) pass the service-account key JSON in FIREBASE_SERVICE_ACCOUNT.
+ */
+export function adminApp() {
+  if (getApps().length) return;
+  const key = process.env.FIREBASE_SERVICE_ACCOUNT;
+  initializeApp(key ? { projectId, credential: cert(JSON.parse(key)) } : { projectId });
+}
+
+/** False when this server has no Firebase project, so nobody can sign in. */
+export const signInConfigured = Boolean(projectId);
 
 /**
  * Verified Firebase uid from `Authorization: Bearer <idToken>`, or null for guests / bad tokens.
@@ -34,13 +51,13 @@ const projectId = (process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FI
  * held a question for ~a minute) the caller gets a guest answer after 2.5 s
  * instead of waiting. The keys keep downloading and later checks are instant.
  */
-export async function verifyUser(req: Request): Promise<string | null> {
+export async function verifyUser(req: Request, timeoutMs = 2500): Promise<string | null> {
   const h = req.headers.get("authorization");
   if (!h?.startsWith("Bearer ") || !projectId) return null;
   try {
-    if (!getApps().length) initializeApp({ projectId });
+    adminApp();
     const check = getAuth().verifyIdToken(h.slice(7)).then((d) => d.uid, () => null);
-    return await Promise.race([check, new Promise<null>((r) => setTimeout(() => r(null), 2500))]);
+    return await Promise.race([check, new Promise<null>((r) => setTimeout(() => r(null), timeoutMs))]);
   } catch {
     return null;
   }

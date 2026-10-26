@@ -1,10 +1,11 @@
 "use client";
 
-import { Bed, Bookmark, Clock, FlaskConical, Globe, Lightbulb, LogIn, LogOut, Menu, MessageCircleQuestion, MessageSquare, Orbit, Plus, Settings, Shapes, Sigma, Trash, TreePine, Trophy, User, Droplets, Volume2, VolumeX, Wrench, X } from "lucide-react";
+import { Bed, Bookmark, Clock, Coins, FlaskConical, Globe, HeartPulse, Lightbulb, LogIn, LogOut, Menu, MessageCircleQuestion, MessageSquare, Orbit, Plus, Settings, Shapes, Sigma, Trash, TreePine, Trophy, User, Droplets, Volume2, VolumeX, Wrench, X } from "lucide-react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { useSim } from "@/lib/store";
+import { useBuilder } from "@/lib/builder/store";
 import { cascade, popover, spring, swap } from "@/lib/motion";
 import { Segmented, SwapIcon } from "./kit";
 import { MorphPanel, useViewport } from "./morph";
@@ -26,6 +27,7 @@ export const WORLD_ITEMS: { id: WorldId; name: string; hint: string; icon: typeo
   { id: "math_studio", name: "Math studio", hint: "Arithmetic to algebra, geometry and statistics", icon: Sigma },
   { id: "math", name: "Math grid", hint: "Graphs, shapes, area and volume", icon: Sigma },
   { id: "globe", name: "Globe", hint: "Countries, places and distances", icon: Globe },
+  { id: "anatomy", name: "Anatomy lab", hint: "The human body, organs and how they work", icon: HeartPulse },
   { id: "mechanics", name: "Mechanics lab", hint: "Forces, acceleration, momentum and energy", icon: Wrench },
   { id: "workshop", name: "Workshop", hint: "Circuits, levers, waves and ripples", icon: Wrench },
   { id: "optics", name: "Light lab", hint: "Mirrors, lenses, prisms and rainbows", icon: Lightbulb },
@@ -90,6 +92,7 @@ export function TopBar() {
         </AnimatePresence>
       </div>
       <div className="pointer-events-auto flex gap-2">
+        <CreditsChip />
         <MuteButton />
         <button className={toolClass} aria-label="Settings" aria-expanded={settingsOpen} onClick={() => set({ settingsOpen: !settingsOpen, accountOpen: false, menuOpen: false, transcriptOpen: false })}>
           <Settings size={20} />
@@ -97,6 +100,18 @@ export function TopBar() {
         <AccountButton photo={user?.photo ?? null} name={user?.name ?? null} />
       </div>
     </header>
+  );
+}
+
+/** The balance every question and unlock spends; opens the credits store. */
+function CreditsChip() {
+  const credits = useBuilder((s) => s.wallet.credits);
+  const ready = useBuilder((s) => s.ready);
+  return (
+    <Link href="/wallet" className="glass btn flex h-11 items-center gap-1.5 rounded-full pl-3 pr-4 text-[15px] font-extrabold" aria-label={ready ? `${credits} credits. Get more credits.` : "Credits"}>
+      <Coins size={18} className="text-[var(--accent-press)]" />
+      {ready ? credits : "…"}
+    </Link>
   );
 }
 

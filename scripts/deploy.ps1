@@ -32,6 +32,9 @@ if (-not $existing) {
   gcloud iam service-accounts create "$Service-runtime" --display-name "SimuBox runtime"
 }
 gcloud projects add-iam-policy-binding $Project --member "serviceAccount:$sa" --role "roles/aiplatform.user" --condition=None | Out-Null
+# Credit balances live in Firestore (credits/{account}); the server is the only writer.
+$creditsProject = if ($FirebaseProjectId) { $FirebaseProjectId } else { $Project }
+gcloud projects add-iam-policy-binding $creditsProject --member "serviceAccount:$sa" --role "roles/datastore.user" --condition=None | Out-Null
 
 # Reads a key from the environment or .env.local.
 function Get-Key([string]$Name) {

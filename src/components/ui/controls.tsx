@@ -1,5 +1,6 @@
 "use client";
 import { MechanicsControls, SchoolMathControls } from "./learning-controls";
+import { AnatomyControls } from "./anatomy-controls";
 
 import { Camera, Focus, Hand, House, LoaderCircle, MessageCircle, PartyPopper, Pause, Play, RotateCcw, Rocket, SlidersHorizontal, Trash, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
@@ -827,6 +828,7 @@ function useControls() {
   const world = useSim((s) => s.world);
   switch (world) {
     case "mechanics": return { name: "Mechanics lab", body: <MechanicsControls /> };
+    case "anatomy": return { name: "Anatomy lab", body: <AnatomyControls /> };
     case "math_studio": return { name: "Math studio", body: <SchoolMathControls /> };
     case "court":
       return { name: "Throwing", body: <ProjectileControls /> };

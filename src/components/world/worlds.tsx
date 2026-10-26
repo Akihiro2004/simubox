@@ -1,5 +1,6 @@
 "use client";
 import { LearningLabMap } from "./learning-labs";
+import { AnatomyRoom } from "./anatomy-lab";
 
 // Fixed diorama decor for each world, with explicit static colliders.
 // Rooms have four walls; any wall between the camera and the room lowers to
@@ -329,6 +330,7 @@ export function WorldDecor({ world, animate }: { world: WorldId; animate: boolea
   switch (world) {
     case "mechanics": return <LearningLabMap animate={animate} />;
     case "math_studio": return <LearningLabMap maths animate={animate} />;
+    case "anatomy": return <AnatomyRoom animate={animate} />;
     case "bedroom":
       return <Bedroom animate={animate} />;
     case "lab":

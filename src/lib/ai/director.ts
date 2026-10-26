@@ -157,13 +157,17 @@ async function generate(contents: string, signal: AbortSignal, emit: (e: Directo
         },
       });
       let all = "";
+      let usage: unknown;
       for await (const chunk of stream) {
+        usage = chunk.usageMetadata ?? usage;
         for (const part of chunk.candidates?.[0]?.content?.parts ?? []) {
           if (!part.text) continue;
           if (part.thought) emit({ type: "thought", title: thoughtTitle(part.text), text: part.text.slice(0, 600) });
           else onText((all += part.text));
         }
       }
+      // Token counts behind the credit prices (src/lib/credits.ts).
+      if (usage) console.log(JSON.stringify({ event: "gemini_usage", model: MODEL, kind, usage }));
       if (!text) throw new Error("empty response");
       return { text, model: MODEL };
     } catch (e) {
@@ -194,6 +198,12 @@ function better(a: ValidationResult, b: ValidationResult): ValidationResult {
   if (a.ok !== b.ok) return a.ok ? a : b;
   if (!a.ok || !b.ok) return a;
   return b.issues.length < a.issues.length ? b : a;
+}
+
+/** Which credit price a request costs, decided exactly as `direct` routes it; null when no model will run. */
+export function planPrice(req: PlanRequest): "lesson" | "quick" | null {
+  if (precheck(req.prompt, req.language) || !aiConfigured()) return null;
+  return lessonMode({ ...req, prompt: routedPrompt(req) });
 }
 
 /** `cancel`: the student left or asked something else; stop generating (and paying) at once. */

@@ -166,6 +166,8 @@ export interface SimState extends SceneData {
   followUps: string[];
   aiStatus: "idle" | "thinking" | "playing";
   aiError: string | null;
+  /** A button the error toast offers, e.g. when the student is out of credits. */
+  aiErrorAction: "buy_credits" | null;
   camera: CameraRequest;
   lastPlan: ScenePlan | null;
   /** Scene as it was right before the last plan ran (for replay). */
@@ -218,6 +220,7 @@ const guide = (world: WorldId): Character => ({
 const WORLD_CAPABILITY: Record<WorldId, CapabilityId> = {
   mechanics: "mechanics",
   math_studio: "maths",
+  anatomy: "anatomy",
   bedroom: "gravity",
   court: "projectile",
   lab: "molecule",
@@ -275,6 +278,7 @@ export const useSim = create<SimState>()(
       followUps: [],
       aiStatus: "idle",
       aiError: null,
+      aiErrorAction: null,
       camera: { nonce: 0, preset: "home" },
       lastPlan: null,
       prePlanScene: null,

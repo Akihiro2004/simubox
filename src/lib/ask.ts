@@ -8,11 +8,12 @@ import { cancelPlayback, finishPlan, resolvePlaceholder, runPlan } from "./playe
 import { ScenePlan, Step } from "./ssp/schema";
 import { fillProse } from "./ssp/validate";
 import { snapshot, useSim } from "./store";
+import { setCredits } from "./builder/store";
 import { LIMITS } from "./world/catalog";
 
 let inflight: AbortController | null = null;
 
-type PlanReply = { plan?: unknown; error?: string; code?: string };
+type PlanReply = { plan?: unknown; error?: string; code?: string; price?: number; wallet?: { credits: number; spent: number } };
 
 /** A queue the player reads steps from while they are still arriving. */
 function stepQueue() {
@@ -59,7 +60,7 @@ async function readPlanStream(res: Response, signal: AbortSignal, onBegin: (plan
       const line = buf.slice(0, nl).trim();
       buf = buf.slice(nl + 1);
       if (!line) continue;
-      let e: { type: string; text?: string; title?: string; plan?: unknown; step?: unknown; error?: string; code?: string };
+      let e: { type: string; text?: string; title?: string; plan?: unknown; step?: unknown; error?: string; code?: string; wallet?: PlanReply["wallet"] };
       try {
         e = JSON.parse(line);
       } catch {
@@ -75,8 +76,8 @@ async function readPlanStream(res: Response, signal: AbortSignal, onBegin: (plan
       } else if (e.type === "plan_step") {
         const step = Step.safeParse(e.step);
         if (step.success && !signal.aborted) onStep(step.data);
-      } else if (e.type === "result") final = { plan: e.plan };
-      else if (e.type === "error") final = { error: e.error, code: e.code };
+      } else if (e.type === "result") final = { plan: e.plan, wallet: e.wallet };
+      else if (e.type === "error") final = { error: e.error, code: e.code, wallet: e.wallet };
     }
   }
   return final;
@@ -107,7 +108,7 @@ export async function ask(raw: string) {
   s.addMessage("user", prompt);
   // The raw question until Gemini sums it up.
   s.set({ topic: prompt });
-  s.set({ aiStatus: "thinking", aiError: null, followUps: [], question: null, thinking: { status: "Sending your question", steps: [], thoughts: [], startedAt: Date.now() } });
+  s.set({ aiStatus: "thinking", aiError: null, aiErrorAction: null, followUps: [], question: null, thinking: { status: "Sending your question", steps: [], thoughts: [], startedAt: Date.now() } });
   const guide = s.characters.simu;
   if (guide) s.patchCharacter("simu", { animation: "think", animNonce: guide.animNonce + 1 });
 
@@ -132,8 +133,18 @@ export async function ask(raw: string) {
       (step) => queue.push(step),
     );
     queue.close();
+    if (data.wallet) setCredits(data.wallet.credits);
     if (ctl.signal.aborted) return;
     useSim.getState().set({ thinking: null });
+    // The server keeps the balance: out of credits, or out of guest lessons, stops here.
+    if (data.code === "sign_in") {
+      useSim.getState().set({ aiStatus: "idle", signInGate: { question: prompt }, draft: prompt });
+      return;
+    }
+    if (data.code === "no_credits") {
+      useSim.getState().set({ aiStatus: "idle", draft: prompt, aiError: data.error ?? "You are out of credits.", aiErrorAction: "buy_credits" });
+      return;
+    }
 
     if (res.ok && data.plan) {
       // Defense in depth: the client re-validates the envelope too.

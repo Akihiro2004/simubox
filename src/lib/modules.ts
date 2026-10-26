@@ -11,7 +11,8 @@ import { measureShape } from "./engine/geometry";
 import { getMolecule, molarMass } from "./engine/chemistry";
 import type { CellKind } from "./engine/biology";
 import { EMPTY_TABLE, type PeriodicTableState } from "./periodic-table";
-import { DEFAULT_MECHANICS, DEFAULT_MATH, type MechanicsState, type MathState } from "./experiments";
+import { DEFAULT_ANATOMY, DEFAULT_MECHANICS, DEFAULT_MATH, type AnatomyState, type MechanicsState, type MathState } from "./experiments";
+import { anatomyValue } from "./anatomy-values";
 import { mechanicsAt } from "./engine/mechanics";
 import { DEFAULT_REACTION, balance, collisionFraction, CATALYST_FACTOR, type ReactionState } from "./engine/reactions";
 import { DEFAULT_POPULATION, cyclePeriod, solvePopulation, type PopulationState } from "./engine/ecology";
@@ -96,6 +97,7 @@ export function windDrivenRipple(r: RippleState): RippleState {
 
 export interface Modules {
   mechanics?: MechanicsState | null;
+  anatomy?: AnatomyState | null;
   maths?: MathState | null;
   periodicTable: PeriodicTableState | null;
   orbits: { mode: "solar_system" | "earth_moon" | "seasons"; planets: PlanetId[]; focus: PlanetId | "sun" | "moon" | null; daysPerSecond: number; labels: boolean; /** Planets moved to another distance (AU), e.g. "what if Earth and Neptune swapped?" */ distances: Partial<Record<PlanetId, number>> } | null;
@@ -136,6 +138,7 @@ export function signalDefaults(kind: SignalKind = "wifi_2_4", layout: SignalLayo
 /** Starting state for each module when something switches it on. */
 export const MODULE_DEFAULTS: { [K in keyof Modules]-?: NonNullable<Modules[K]> } = {
   mechanics: DEFAULT_MECHANICS,
+  anatomy: DEFAULT_ANATOMY,
   maths: DEFAULT_MATH,
   periodicTable: EMPTY_TABLE,
   orbits: { mode: "solar_system", planets: ALL_PLANETS, focus: null, daysPerSecond: 20, labels: true, distances: {} },
@@ -160,6 +163,7 @@ export const MODULE_DEFAULTS: { [K in keyof Modules]-?: NonNullable<Modules[K]> 
 export function defaultModules(world: WorldId): Modules {
   return {
     mechanics: world === "mechanics" ? { ...DEFAULT_MECHANICS } : null,
+    anatomy: world === "anatomy" ? { ...DEFAULT_ANATOMY } : null,
     maths: world === "math_studio" ? { ...DEFAULT_MATH } : null,
     periodicTable: world === "lab" ? EMPTY_TABLE : null,
     orbits: world === "space" ? MODULE_DEFAULTS.orbits : null,
@@ -472,6 +476,10 @@ function signalValue(name: string, s: SignalState): string | undefined {
 /** Value for {{name}} / {{name:arg}} from module state; undefined if not applicable. */
 export function moduleValue(name: string, arg: string | undefined, m: Modules, objects: Record<string, SceneObject>): string | undefined {
   if (name === "wind_speed") return m.ripple?.windSpeed === undefined ? undefined : `${m.ripple.windSpeed} m/s (qualitative driver)`;
+  if (name === "organ_mass" || (m.anatomy && name !== "speed")) {
+    const v = anatomyValue(name, arg, m.anatomy ?? null);
+    if (v !== undefined) return v;
+  }
   if (m.maths && name === "math_answer") return schoolMath(m.maths).answer;
   if (m.maths && name === "math_formula") return schoolMath(m.maths).formula;
   if (m.mechanics && name.startsWith("mechanics_")) {

@@ -55,7 +55,7 @@ function Lights({ shadows, mapSize }: { shadows: boolean; mapSize: number }) {
   const space = world === "space";
   const opticsLighting = useSim((s) => s.modules.optics?.lighting);
   const dark = world === "optics";
-  const indoor = world === "bedroom" || world === "lab" || world === "workshop" || world === "mechanics" || world === "math_studio" || dark;
+  const indoor = world === "bedroom" || world === "lab" || world === "workshop" || world === "mechanics" || world === "math_studio" || world === "anatomy" || dark;
   const t = WORLDS[world].camera.target;
   const mood = light === "day" ? null : MOOD[light];
   const dim = dark && !mood ? opticsLighting === "dim" ? 0.48 : 0.88 : 1;

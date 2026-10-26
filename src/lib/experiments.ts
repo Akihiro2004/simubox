@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { isValidExpression } from "./engine/expr";
+import { BREATH_DEFAULTS, FIBERS, HEART_DEFAULTS, type FiberId } from "./engine/physiology";
+import { ANATOMY_SYSTEMS, anatomyLooks, STRUCTURE_IDS, STRUCTURES, type AnatomySystem } from "./world/anatomy";
 
 const n = (lo: number, hi: number) => z.number().finite().min(lo).max(hi);
 export const MECHANICS_MODES = ["force", "collision", "impulse", "ramp", "spring", "pendulum"] as const;
@@ -49,4 +51,43 @@ export function mathSetupError(s: MathState): string | null {
   if (s.mode === "probability" && !s.replacement && s.draws > s.total) return "Cannot draw more objects than exist without replacement.";
   if (s.mode === "arithmetic" && s.operation === "power" && (!Number.isInteger(s.b) || Math.abs(s.b) > 8)) return "Use an integer exponent from -8 to 8.";
   return null;
+}
+
+export const ANATOMY_INSTRUMENTS = ["none", "heart", "breathing", "nerve", "digestion", "kidney"] as const;
+export const AnatomyFields = z.strictObject({
+  system: z.enum(ANATOMY_SYSTEMS),
+  /** Whole-body peel: 0 skin, 1 muscles, 2 skeleton and organs, 3 organs only. */
+  depth: z.number().int().min(0).max(3),
+  highlight: z.enum(STRUCTURE_IDS).nullable(),
+  labels: z.boolean(),
+  instrument: z.enum(ANATOMY_INSTRUMENTS),
+  heartRateBpm: n(30, 200), contractility: n(.3, 2), resistance: n(.4, 2.5), arterialStiffness: n(.5, 3), fillingMmHg: n(3, 20),
+  breathsPerMin: n(4, 40), effortCmH2O: n(1, 30), airwayResistance: n(.5, 30), compliance: n(.02, .3),
+  /** Body activity in METs (1 = resting, ~6 = running): sets oxygen use and CO2 made. */
+  metabolicRate: n(1, 12),
+  /** Water drunk per day, litres. */
+  waterIntakeL: n(.5, 5),
+  fiber: z.enum(Object.keys(FIBERS) as [FiberId, ...FiberId[]]), stimulusUA: n(0, 40),
+  hoursAfterMeal: n(0, 72),
+  /** Slow motion for the live models: 1 = real time. */
+  speed: n(.05, 1), playing: z.boolean(),
+});
+export type AnatomyState = z.infer<typeof AnatomyFields>;
+export const DEFAULT_ANATOMY: AnatomyState = {
+  system: "all", depth: 0, highlight: null, labels: false, instrument: "none",
+  ...HEART_DEFAULTS, ...BREATH_DEFAULTS, metabolicRate: 1, waterIntakeL: 2, fiber: "A_alpha", stimulusUA: 15, hoursAfterMeal: 0, speed: 1, playing: true,
+};
+/** The body system each live model is about. */
+export const INSTRUMENT_SYSTEM: Record<AnatomyState["instrument"], AnatomySystem | null> = { none: null, heart: "cardiovascular", breathing: "respiratory", nerve: "nervous", digestion: "digestive", kidney: "urinary" };
+
+/**
+ * Applies a change to the Anatomy Lab. Starting a live model shows its body
+ * system, and highlighting a structure the current layers hide switches to
+ * its system, unless the same change names a system itself.
+ */
+export function anatomySetup(cur: AnatomyState, patch: Partial<AnatomyState>, fresh: boolean): AnatomyState {
+  const next = { ...cur, ...(fresh ? { highlight: null } : {}), ...patch };
+  if (patch.system === undefined && patch.instrument && INSTRUMENT_SYSTEM[patch.instrument]) next.system = INSTRUMENT_SYSTEM[patch.instrument]!;
+  if (patch.system === undefined && next.highlight && anatomyLooks(next.system, next.depth).get(next.highlight) !== "solid") next.system = STRUCTURES[next.highlight].system;
+  return next;
 }
