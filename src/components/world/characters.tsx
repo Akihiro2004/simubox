@@ -4,7 +4,7 @@ import { RoundedBox } from "@react-three/drei";
 import { Html } from "@/components/world/html";
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { MathUtils, Vector3, type Group } from "three";
+import { MathUtils, Vector3, type Camera, type Group, type Object3D } from "three";
 import { useSim } from "@/lib/store";
 import { nodes } from "@/lib/world/runtime";
 import type { Character } from "@/lib/world/scene";
@@ -306,10 +306,33 @@ function Person({ c, partsRef }: { c: Character; partsRef: PartsRef }) {
 
 const anchor = new Vector3();
 const EDGE = 12;
+const probe = new Vector3();
+/** Screen pixels the composer covers at the bottom; a speaker down there counts as hidden. */
+const COMPOSER_PX = 96;
+
+/** Is any of the character's body (waist or head) inside the screen, clear of the composer? */
+function bodyOnScreen(root: Object3D, camera: Camera, height: number, h: number, margin: number): boolean {
+  const floor = -1 + (2 * COMPOSER_PX) / Math.max(1, h);
+  for (const y of [0.5, height * 0.55]) {
+    probe.set(0, y, 0);
+    root.localToWorld(probe).project(camera);
+    if (probe.z < 1 && Math.abs(probe.x) < 1 - margin && probe.y < 1 - margin && probe.y > floor + margin) return true;
+  }
+  return false;
+}
 
 function SpeechBubble({ c, height }: { c: Character; height: number }) {
   const speech = useSim((s) => (s.speech?.speaker === c.id ? s.speech : null));
+  const hidden = useSim((s) => s.speakerHidden);
   const bubble = useRef<HTMLButtonElement>(null);
+  // While this character speaks, report whether it is on screen. Hysteresis keeps the dock from flickering at the edge.
+  useFrame(({ camera, size }) => {
+    const root = nodes.get(c.id);
+    if (!speech || !root) return;
+    const s = useSim.getState();
+    const off = !bodyOnScreen(root, camera, height, size.height, s.speakerHidden ? 0.06 : 0);
+    if (off !== s.speakerHidden) s.set({ speakerHidden: off });
+  });
   if (!speech) return null;
   // Rendered in a layer above the lesson cards: the line being spoken must never hide behind them.
   const layer = document.getElementById("bubble-layer");
@@ -332,7 +355,9 @@ function SpeechBubble({ c, height }: { c: Character; height: number }) {
         return [cx, Math.max(y, el.offsetHeight + EDGE)];
       }}
     >
-      <button ref={bubble} key={speech.key} type="button" className="speech-bubble relative block px-4 py-2.5" onClick={skipSpeech} aria-label={`${c.name} says: ${speech.text}. Click to skip.`}>
+      <button ref={bubble} key={speech.key} type="button" className={`speech-bubble relative block px-4 py-2.5 transition-opacity duration-200 ${hidden ? "pointer-events-none opacity-0" : ""}`}
+        aria-hidden={hidden}
+        tabIndex={hidden ? -1 : undefined} onClick={skipSpeech} aria-label={`${c.name} says: ${speech.text}. Click to skip.`}>
         {c.id !== "simu" && <span className="mb-0.5 block text-[12px] font-bold text-ink-3">{c.name}</span>}
         <RevealText text={speech.text} />
       </button>

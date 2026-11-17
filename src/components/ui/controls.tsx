@@ -520,8 +520,8 @@ function OpticsControls() {
   return (
     <>
       <div className="grid grid-cols-2 gap-2">
-        <Action onClick={() => useSim.getState().focus({ target: [0, OPTICS_TABLE.center[1] + 0.1, 0], distance: 12 * Math.max(1, window.innerHeight / window.innerWidth) })}>Table close-up</Action>
-        <Action onClick={() => useSim.getState().focus({ preset: "home" })}>Room view</Action>
+        <Action onClick={() => useSim.getState().focus({ target: [0, OPTICS_TABLE.center[1] + 0.1, 0], distance: 12 * Math.max(1, window.innerHeight / window.innerWidth), by: "user" })}>Table close-up</Action>
+        <Action onClick={() => useSim.getState().focus({ preset: "home", by: "user" })}>Room view</Action>
       </div>
       <select aria-label="Optics experiment" className="w-full rounded-xl bg-white/80 px-3 py-2.5 text-sm" value="" onChange={(e) => e.target.value && execNow({ op: "show_optics", preset: e.target.value as OpticPreset })}>
         <option value="">Try an experiment…</option>
@@ -611,7 +611,7 @@ function LabControls() {
   const active = readingTable ? "table" : particles ? "matter" : cell ? "cell" : reaction ? "reaction" : population ? "population" : genetics ? "genetics" : osmosis ? "osmosis" : "chem";
   const pick = (k: typeof active) => {
     if (k === "table") { execNow({ op: "show_periodic_table" }); return; }
-    if (readingTable) useSim.getState().focus({ preset: "home" });
+    if (readingTable) useSim.getState().focus({ preset: "home", by: "user" });
     if (k === "chem") patchModules({ particles: null, cell: null, reaction: null, population: null, genetics: null, osmosis: null });
     else if (k === "matter") execNow({ op: "show_particles", substance: "water", temperatureC: 20 });
     else if (k === "reaction") execNow({ op: "show_reaction" });
@@ -710,8 +710,8 @@ export function TableViewActions() {
   });
   if (!showing) return null;
   return <><nav aria-label="Periodic table view" className="table-view-actions pointer-events-auto fixed left-1/2 z-40 flex -translate-x-1/2 gap-1 rounded-full glass p-1">
-    <button className="btn rounded-full px-3 py-2 text-[12px] font-bold" onClick={() => { cancelPlayback(); useSim.getState().focus({ preset: "home" }); }}>Back to lab</button>
-    <button className="btn rounded-full px-3 py-2 text-[12px] font-bold" onClick={() => useSim.getState().focus({ preset: "periodic_table" })}>Fit table</button>
+    <button className="btn rounded-full px-3 py-2 text-[12px] font-bold" onClick={() => { cancelPlayback(); useSim.getState().focus({ preset: "home", by: "user" }); }}>Back to lab</button>
+    <button className="btn rounded-full px-3 py-2 text-[12px] font-bold" onClick={() => useSim.getState().focus({ preset: "periodic_table", by: "user" })}>Fit table</button>
   </nav>
     {(speech || tableReply) && <div className="table-lesson-caption glass" role="status" aria-live="polite">
       <p>{speech?.text ?? tableReply}</p>
@@ -898,7 +898,7 @@ function useSelection() {
       label="Zoom in"
       onClick={() => {
         const p = livePosition(sel);
-        if (p) useSim.getState().focus({ target: p, zoom: "close" });
+        if (p) useSim.getState().focus({ target: p, zoom: "close", by: "user" });
       }}
     >
       <Focus size={18} />
@@ -1074,10 +1074,10 @@ export function RightRail() {
               <Tool label="Reset" onClick={() => execNow({ op: "reset_simulation" })}>
                 <RotateCcw size={18} />
               </Tool>
-              <Tool label="Start view" onClick={() => useSim.getState().focus({ preset: "home" })}>
+              <Tool label="Start view" onClick={() => useSim.getState().focus({ preset: "home", by: "user" })}>
                 <House size={18} />
               </Tool>
-              <Tool label="From above" onClick={() => useSim.getState().focus({ preset: "top" })}>
+              <Tool label="From above" onClick={() => useSim.getState().focus({ preset: "top", by: "user" })}>
                 <Camera size={18} />
               </Tool>
             </>

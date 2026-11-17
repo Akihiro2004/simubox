@@ -8,7 +8,7 @@ import { MathText } from "./formula";
 import { RevealText } from "./kit";
 import { useSim } from "@/lib/store";
 import { cascade, popover, rise, spring, swap } from "@/lib/motion";
-import { answerQuestion, placeholderValues, replay, resolvePlaceholder, skipSpeech } from "@/lib/player";
+import { answerQuestion, frameSpeaker, placeholderValues, replay, resolvePlaceholder, skipSpeech } from "@/lib/player";
 import { fillProse } from "@/lib/ssp/validate";
 import { getMolecule } from "@/lib/engine/chemistry";
 
@@ -196,29 +196,94 @@ export function ExplanationCard() {
   );
 }
 
-export function NarratorCaption() {
-  const speech = useSim((s) => (s.speech?.speaker === "narrator" ? s.speech : null));
-  // Character lines show as bubbles in 3D; narrator lines sit above the composer.
+/**
+ * Shown while a lesson plays and the student has taken the camera (orbit,
+ * zoom, a view button). The lesson stops steering until they tap this; a
+ * soft dot breathes when it has a new shot waiting.
+ */
+function FollowLesson() {
+  const show = useSim((s) => s.aiStatus === "playing" && !s.cameraFollow);
+  const waiting = useSim((s) => s.pendingShot !== null);
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(84px+env(safe-area-inset-bottom))] z-20 flex justify-center px-4 sm:bottom-[100px]">
-      <AnimatePresence mode="popLayout">
-        {speech && (
+    <AnimatePresence>
+      {show && (
+        <motion.button
+          key="follow"
+          type="button"
+          layout
+          initial={{ opacity: 0, y: 8, scale: 0.94, filter: "blur(6px)" }}
+          animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)", transitionEnd: { filter: "none" } }}
+          exit={{ opacity: 0, y: 6, scale: 0.96, filter: "blur(6px)", transition: { duration: 0.18 } }}
+          transition={spring.smooth}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => useSim.getState().followLesson()}
+          className="follow-lesson glass pointer-events-auto flex items-center gap-2 rounded-full py-1.5 pl-3 pr-3.5 text-[13px] font-semibold text-ink-2"
+          aria-label={waiting ? "Follow the lesson again: Simu is showing something new" : "Let the lesson move the camera again"}
+        >
+          <span className="follow-dot" data-waiting={waiting || undefined} aria-hidden />
+          Follow lesson
+        </motion.button>
+      )}
+    </AnimatePresence>
+  );
+}
+
+/**
+ * Lines with no bubble to read dock above the composer: narrator lines always,
+ * and a character's lines while that character is off screen. Clicking a docked character line brings the speaker into view;
+ * once it is on screen the dock gives way to its bubble again.
+ */
+export function SpeechDock() {
+  const current = useSim((s) => s.speech);
+  const hidden = useSim((s) => s.speakerHidden);
+  const speaker = useSim((s) => (s.speech && s.speech.speaker !== "narrator" ? s.characters[s.speech.speaker] ?? null : null));
+  const isNarrator = current?.speaker === "narrator";
+  const live = current && (isNarrator || (speaker && hidden)) ? { speech: current, who: speaker, narrator: isNarrator } : null;
+  // Lines are ~150 ms apart: hold the last one briefly so the dock swaps text instead of blinking out and back.
+  const [held, setHeld] = useState(live);
+  if (live && live.speech.key !== held?.speech.key) setHeld(live);
+  const active = !!live;
+  useEffect(() => {
+    if (active) return;
+    const t = setTimeout(() => setHeld(null), 450);
+    return () => clearTimeout(t);
+  }, [active]);
+  const show = live ?? held;
+  const { speech, who, narrator } = show ?? { speech: null, who: null, narrator: false };
+  const name = who?.name ?? "Simu";
+
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(84px+env(safe-area-inset-bottom))] z-20 flex flex-col items-center gap-2 px-4 sm:bottom-[100px]">
+      <FollowLesson />
+      <AnimatePresence>
+        {show && speech && (
           <motion.button
-            key={speech.key}
-            initial={{ opacity: 0, y: 16, scale: 0.9, filter: "blur(6px)" }}
-            animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
-            exit={{ opacity: 0, y: -6, scale: 0.97, filter: "blur(4px)", transition: { duration: 0.16 } }}
-            transition={spring.bouncy}
-            whileTap={{ scale: 0.97 }}
-            className="pointer-events-auto flex max-w-[620px] items-start gap-2.5 rounded-[22px] bg-white px-4 py-3 text-left shadow-[0_10px_28px_-8px_rgba(31,41,55,0.35)]"
-            onClick={skipSpeech}
+            key="dock"
+            type="button"
+            initial={{ opacity: 0, y: 10, filter: "blur(10px)" }}
+            // A leftover filter, even blur(0px), would switch off the frosted haze behind the text.
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)", transitionEnd: { filter: "none" } }}
+            exit={{ opacity: 0, y: 6, filter: "blur(8px)", transition: { duration: 0.24 } }}
+            transition={spring.smooth}
+            className="speech-dock pointer-events-auto relative w-full max-w-[560px] px-6 py-2 text-center"
+            onClick={narrator || !who ? skipSpeech : () => frameSpeaker(who.id)}
+            title={narrator || !who ? undefined : `Show ${name}`}
             aria-live="polite"
-            aria-label={`Simu says: ${speech.text}. Click to skip.`}
+            aria-label={narrator || !who ? `Simu says: ${speech.text}. Click to skip.` : `${name} says: ${speech.text}. Click to show ${name}.`}
           >
-            <SimuFace size={26} />
-            <span className="pt-0.5 text-[16px] font-bold leading-snug">
-              <RevealText text={speech.text} />
-            </span>
+            {who && who.kind !== "robot" && <span className="speech-dock-name">{name}</span>}
+            <AnimatePresence mode="popLayout" initial={false}>
+              <motion.span
+                key={speech.key}
+                initial={{ opacity: 0, filter: "blur(6px)" }}
+                animate={{ opacity: 1, filter: "blur(0px)" }}
+                exit={{ opacity: 0, filter: "blur(6px)", transition: { duration: 0.18 } }}
+                transition={spring.layout}
+                className="speech-dock-text line-clamp-2"
+              >
+                <RevealText text={speech.text} />
+              </motion.span>
+            </AnimatePresence>
           </motion.button>
         )}
       </AnimatePresence>

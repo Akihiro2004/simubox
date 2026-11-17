@@ -8,6 +8,8 @@ import { create } from "zustand";
 import { ASSETS, GUIDE_ID, LIMITS, WORLDS, type Vec3 } from "./world/catalog";
 import { assetObject, type SceneObject } from "./world/scene";
 import { allSettled, emit, getBody, liveBodies, livePosition, markFresh, view, waitFor } from "./world/runtime";
+import { beatPoints, needsShot, SHOT, shotRadius } from "./world/camera-framing";
+import anatomyBody from "./world/anatomy.generated.json";
 import { fmt, PROJECTILE_LIMITS, toMetersPerSecond } from "./engine/projectile";
 import { fillPlaceholders, fillProse } from "./ssp/validate";
 import { MODULE_FIELDS, type Command, type ScenePlan, type Step } from "./ssp/schema";
@@ -22,7 +24,6 @@ import { magnetPreset } from "./engine/magnet";
 import { loadCompound } from "./engine/chemistry";
 import type { ShapeKind } from "./engine/geometry";
 import { EMPTY_TABLE } from "./periodic-table";
-import anatomyBody from "./world/anatomy.generated.json";
 import { AnatomyFields, anatomySetup, DEFAULT_ANATOMY, DEFAULT_MECHANICS, DEFAULT_MATH, MechanicsFields, MathFields, mathSetupError, type MathState } from "./experiments";
 
 let controller: AbortController | null = null;
@@ -87,7 +88,6 @@ export async function runPlan(plan: ScenePlan, source: Explanation["source"], op
   cancelPlayback();
   const ctl = new AbortController();
   controller = ctl;
-  subject = null;
   const s = st();
   s.set({
     prePlanScene: opts.replay ? s.prePlanScene : pickScene(s),
@@ -99,7 +99,11 @@ export async function runPlan(plan: ScenePlan, source: Explanation["source"], op
     followUps: plan.followUps,
     aiStatus: "playing",
     selectedId: null,
+    // Every new lesson starts by steering the camera again.
+    cameraFollow: true,
+    pendingShot: null,
   });
+  resetDirector();
   if (plan.capability !== "none") s.set({ capability: plan.capability });
   if (plan.question) s.set({ topic: plan.question });
   if (!opts.replay) s.addMessage("assistant", plan.reply);
@@ -276,18 +280,24 @@ function defaultMoleculeSpot(): Vec3 {
   return [[0, -1.9, 1.9][taken % 3], y, 0];
 }
 
-// ---------- keeping the subject and the speaker on screen ----------
+// ---------- lesson camera director ----------
+//
+// When the lesson builds or changes something, the camera glides to it, the
+// way a documentary cuts to what the narrator is talking about. Rules:
+// - one shot per beat: things touched together are framed together;
+// - the dead zone: a subject that is already on screen at a readable size
+//   doesn't move the camera at all;
+// - a held beat: shots are at least SHOT.holdMs apart, so the view never ping-pongs;
+// - explicit framing wins: if the beat already moved the camera (focus_camera,
+//   a lab opening, a world loading), the director stays out of it;
+// - the student wins: once they move the camera, store.focus holds lesson
+//   shots until they press "Follow lesson" (see store.takeCamera).
 
-/** What the lesson is currently about: an object/character id or a spot. */
-let subject: string | Vec3 | null = null;
-
-/** The thing a command acts on, if it acts on one specific thing. */
+/** The thing a command shows or changes, if it is one specific thing worth framing. */
 function subjectOf(c: Command): string | Vec3 | null {
   switch (c.op) {
-    case "show_mechanics": return [0, 1, 0];
-    case "show_anatomy": return c.highlight ? anatomyPoint(c.highlight) : [0, 1.1, 0];
+    case "show_anatomy": return c.highlight ? anatomyPoint(c.highlight) : null;
     case "set_module": return c.module === "anatomy" && typeof c.set.highlight === "string" ? anatomyPoint(c.set.highlight) : null;
-    case "show_math": return [0, 2, 0];
     case "spawn_asset":
     case "spawn_primitive":
     case "spawn_shape":
@@ -302,12 +312,10 @@ function subjectOf(c: Command): string | Vec3 | null {
     case "apply_force":
     case "set_velocity":
       return c.id === "all" ? null : c.id;
+    // Labels and arrows only steer the camera when they belong to a thing; a bare point may be empty air.
     case "show_annotation":
-      return c.target ?? (c.position as Vec3 | undefined) ?? null;
     case "show_vector":
-      return c.target ?? (c.origin as Vec3 | undefined) ?? null;
-    case "focus_camera":
-      return c.target ?? (c.position as Vec3 | undefined) ?? null;
+      return c.target ?? null;
     default:
       return null;
   }
@@ -318,6 +326,56 @@ function anatomyPoint(id: string): Vec3 {
   const c = (anatomyBody.structures as Record<string, { center: number[] }>)[id]?.center ?? [0, .85, 0];
   return [c[0], c[1] + .25, c[2]];
 }
+
+/** Subjects touched in the current beat (resolved to points at shot time: things grow in and move). */
+let beat: (string | Vec3)[] = [];
+/** Points of the last framed beat, kept in shot when the new one is close by. */
+let lastBeat: Vec3[] = [];
+/** Camera request count when the beat began: if it changed, something else already framed this beat. */
+let beatNonce = -1;
+let shotTimer: ReturnType<typeof setTimeout> | null = null;
+let lastShotAt = 0;
+/** Lets a spawn and the commands right after it land in one shot. */
+const BEAT_GAP_MS = 150;
+
+export function resetDirector() {
+  if (shotTimer) clearTimeout(shotTimer);
+  shotTimer = null;
+  beat = [];
+  lastBeat = [];
+  lastShotAt = 0;
+}
+
+function noteSubject(what: string | Vec3) {
+  if (!beat.length) beatNonce = st().camera.nonce;
+  beat.push(what);
+  scheduleShot(BEAT_GAP_MS);
+}
+
+function scheduleShot(ms: number) {
+  if (shotTimer) clearTimeout(shotTimer);
+  shotTimer = setTimeout(takeShot, ms);
+}
+
+function takeShot() {
+  shotTimer = null;
+  const s = st();
+  if (s.aiStatus !== "playing" || !beat.length) return;
+  const wait = lastShotAt + SHOT.holdMs - Date.now();
+  if (wait > 0) return scheduleShot(wait);
+  const current = beat.flatMap(pointsOf);
+  const framedElsewhere = s.camera.nonce !== beatNonce;
+  beat = [];
+  if (!current.length) return;
+  const points = beatPoints(lastBeat, current);
+  lastBeat = current;
+  if (framedElsewhere || s.camera.preset === "periodic_table") return;
+  if (view.framing && !needsShot(view.framing(points))) return;
+  s.focus({ points, radius: shotRadius(points) });
+  lastShotAt = Date.now();
+}
+
+// ---------- framing a thing ----------
 
 /** Points that must be visible for a thing: its box corners, roughly. */
 function pointsOf(what: string | Vec3): Vec3[] {
@@ -342,23 +400,16 @@ function pointsOf(what: string | Vec3): Vec3[] {
   ];
 }
 
-/**
- * Students with the sound off read the guide's bubble, so the speaker and
- * what the lesson is about must both be on screen. Moves the camera only
- * when one of them isn't. Returns true if it moved.
- */
-export function keepInView(speakerId: string | null, extra: (string | Vec3)[] = [], radius?: number): boolean {
-  const points = [...(speakerId ? pointsOf(speakerId) : []), ...(subject ? pointsOf(subject) : []), ...extra.flatMap(pointsOf)];
-  if (!points.length || !view.inView || view.inView(points)) return false;
-  st().focus({ points, radius });
-  return true;
+/** Brings a character and its bubble on screen, keeping the current viewing angle. Only the student asks for this. */
+export function frameSpeaker(id: string) {
+  const points = pointsOf(id);
+  if (points.length) st().focus({ points, by: "user" });
 }
 
 export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = "en"): Promise<void> {
   const s = st();
   const about = subjectOf(c);
-  if (about) subject = about;
-  if (c.op === "load_world") subject = null;
+  if (about) noteSubject(about);
   switch (c.op) {
     case "show_mechanics": {
       if (s.world !== "mechanics") s.loadWorld("mechanics");
@@ -1023,9 +1074,8 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
     case "focus_camera": {
       const optic = s.world === "optics" && c.target ? s.modules.optics?.elements.find((element) => element.id === c.target) : undefined;
       const target = c.target ? (livePosition(c.target) ?? s.objects[c.target]?.position ?? s.characters[c.target]?.position ?? (optic ? [optic.x, OPTICS_TABLE.center[1] + 0.1, optic.z] as Vec3 : undefined)) : (c.position as Vec3 | undefined);
-      // Frame the target together with the guide, so the bubble stays readable.
-      const guide = s.characters[GUIDE_ID] && target && s.camera.preset !== "periodic_table" ? pointsOf(GUIDE_ID) : [];
-      if (guide.length && target) s.focus({ points: [...guide, ...pointsOf(c.target ?? target)], radius: { close: 1.2, medium: 2.2, wide: 4.5 }[c.zoom ?? "medium"] });
+      // The guide no longer needs to be in shot: its lines dock above the composer when it isn't.
+      if (target && s.camera.preset !== "periodic_table") s.focus({ points: pointsOf(c.target ?? target), radius: { close: 1.2, medium: 2.2, wide: 4.5 }[c.zoom ?? "medium"] });
       else s.focus({ target: target ?? WORLDS[s.world].camera.target, zoom: c.zoom ?? "medium" });
       await sleep(500, signal);
       return;
@@ -1057,8 +1107,6 @@ export async function exec(c: Command, signal: AbortSignal, lang: "en" | "id" = 
       const speaker = c.speaker === "narrator" ? null : s.characters[c.speaker];
       const key = ++speechKey;
       s.set({ speech: { key, speaker: c.speaker, text, emotion: c.emotion } });
-      // The bubble is the only way a muted student hears this line.
-      if (speaker && s.camera.preset !== "periodic_table") keepInView(speaker.id);
       if (speaker) s.patchCharacter(speaker.id, { animation: "talk", animNonce: speaker.animNonce + 1 });
       useSim.getState().addMessage("assistant", speaker ? `${speaker.name}: ${text}` : text, true);
 

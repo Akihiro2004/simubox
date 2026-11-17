@@ -69,8 +69,9 @@ export function ProjectileStage({ animate }: { animate: boolean }) {
     }
     // Fit the actual flight and guide through the viewport-aware camera fitter.
     // A distance based only on range clipped both ends, especially on phones.
+    // The launch spot stays in shot; the guide doesn't need to (its lines dock above the composer).
     useSim.getState().focus({ points: [
-      [-2.2, 0, 2.2], [-1.5, 2.4, 2.2],
+      [0, lift, 0],
       ...path.map(([x, y]) => [x, y + lift + .6 * visualScale, 0] as [number, number, number]),
     ] });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only on launch

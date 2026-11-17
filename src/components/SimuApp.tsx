@@ -17,9 +17,16 @@ import { Onboarding } from "./ui/onboarding";
 import { SignInGate } from "./ui/signin-gate";
 import { CenterCards } from "./ui/infocard";
 import { RightRail, TableViewActions } from "./ui/controls";
-import { ErrorToast, ExplanationCard, Metrics, NarratorCaption, QuestionCard, SimuFace } from "./ui/lesson";
+import { ErrorToast, ExplanationCard, Metrics, QuestionCard, SpeechDock, SimuFace } from "./ui/lesson";
 
 const noop = () => () => {};
+
+/** Right-drag moves the camera, so the browser menu would only get in the way. Text fields and selected text keep it for copy and paste. */
+function keepContextMenuForText(e: React.MouseEvent) {
+  const t = e.target as HTMLElement;
+  if (t.closest("input, textarea, [contenteditable]") || window.getSelection()?.toString()) return;
+  e.preventDefault();
+}
 
 const SimuCanvas = dynamic(() => import("./world/SimuCanvas"), {
   ssr: false,
@@ -101,7 +108,7 @@ export default function SimuApp() {
 
   return (
     <MotionConfig reducedMotion={motion ? "never" : "always"}>
-    <main className="relative h-dvh w-full overflow-hidden">
+    <main className="relative h-dvh w-full overflow-hidden" onContextMenu={keepContextMenuForText}>
       {gl === false ? (
         <div className="glass fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 rounded-[22px] p-5 text-center" role="alert">
           <p className="mb-2 text-[17px] font-extrabold">3D isn&apos;t available here</p>
@@ -124,7 +131,7 @@ export default function SimuApp() {
       <CenterCards />
       <QuestionCard />
       {!editingMap && <RightRail />}
-      <NarratorCaption />
+      <SpeechDock />
       <ErrorToast />
       {!editingMap && <Composer />}
       {/* First sign-in welcome (or ?onboarding=1), above everything. */}

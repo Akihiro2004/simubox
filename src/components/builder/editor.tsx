@@ -44,7 +44,7 @@ export default function Editor() {
       <button aria-label="Undo map edit" disabled={!past} onClick={() => undoEdit()}><Undo2 size={18} /></button>
       <button aria-label="Redo map edit" disabled={!future} onClick={() => undoEdit(true)}><Redo2 size={18} /></button>
       <button aria-label="Save working map" onClick={saveWorkingMap}><Save size={18} /></button>
-      <button aria-label="View map from above" onClick={() => useSim.getState().focus({ preset: "top" })}><Focus size={18} /></button>
+      <button aria-label="View map from above" onClick={() => useSim.getState().focus({ preset: "top", by: "user" })}><Focus size={18} /></button>
       <button className={styles.addButton} onClick={() => set({ open: true })}><Plus size={16} /> Add item</button>
     </div>
     <div className={styles.editorScroll}>
@@ -62,7 +62,7 @@ export default function Editor() {
           const id = o.id, name = objectName(o);
           finishEditing();
           useSim.getState().set({ draft: `Using my ${name} (id: ${id}), ${item ? item.tryIt.charAt(0).toLowerCase() + item.tryIt.slice(1) : "help me plan a learning experiment."}` });
-          const p = livePosition(id); if (p) useSim.getState().focus({ target: p, zoom: "medium" });
+          const p = livePosition(id); if (p) useSim.getState().focus({ target: p, zoom: "medium", by: "user" });
           document.getElementById("prompt")?.focus();
         }}><MessageCircle size={16} /> Explore with Simu</button>
         {item && <p className={styles.editorTip}>{item.illustration ?? item.tryIt}</p>}

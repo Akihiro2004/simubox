@@ -47,7 +47,7 @@ export function CircuitControls({ board }: { board: Board }) {
   const setBuilding = (on: boolean) => {
     useCircuitUi.setState({ building: on, pending: null, tool: on ? "wire" : "select" });
     // Building wants a clear view straight down onto the board.
-    if (on) useSim.getState().focus({ target: [BOARD_POS[0], BOARD_POS[1], BOARD_POS[2]], distance: 6.5 });
+    if (on) useSim.getState().focus({ target: [BOARD_POS[0], BOARD_POS[1], BOARD_POS[2]], distance: 6.5, by: "user" });
   };
   const batteries = board.parts.filter((p) => p.kind === "battery" && !p.broken);
   return (

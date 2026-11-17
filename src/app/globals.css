@@ -325,6 +325,101 @@ input[type="range"].slider::-moz-range-thumb {
   }
 }
 
+/* A line docked above the composer while its speaker is off screen. */
+/* No box: just type, over a frosted haze that fades out with no visible edge. */
+.speech-dock {
+  cursor: pointer;
+  isolation: isolate;
+  -webkit-tap-highlight-color: transparent;
+}
+.speech-dock::before {
+  content: "";
+  position: absolute;
+  inset: -22px -48px;
+  z-index: -1;
+  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0));
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-mask-image: radial-gradient(closest-side, #000 45%, transparent 100%);
+  mask-image: radial-gradient(closest-side, #000 45%, transparent 100%);
+  pointer-events: none;
+}
+.speech-dock-name {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.speech-dock-text {
+  display: -webkit-box;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.012em;
+  color: var(--ink);
+  text-wrap: balance;
+  text-shadow: 0 0 1px rgba(255, 255, 255, 0.9), 0 1px 14px rgba(255, 255, 255, 0.85);
+  transition: opacity 0.2s var(--ease);
+}
+@media (hover: hover) {
+  .speech-dock:hover .speech-dock-text {
+    opacity: 0.72;
+  }
+}
+/* "Follow lesson": a quiet pill; its dot breathes when the lesson has something new to show. */
+.follow-lesson {
+  transition: color 0.2s var(--ease);
+}
+@media (hover: hover) {
+  .follow-lesson:hover {
+    color: var(--ink);
+  }
+}
+.follow-dot {
+  position: relative;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--ink-3);
+  transition: background 0.3s var(--ease);
+}
+.follow-dot[data-waiting] {
+  background: #22b8cf;
+}
+.follow-dot[data-waiting]::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  background: rgba(34, 184, 207, 0.35);
+  animation: follow-breathe 1.6s var(--ease) infinite;
+}
+@keyframes follow-breathe {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .follow-dot[data-waiting]::after {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+.speech-dock:focus-visible {
+  outline: 2px solid rgba(17, 24, 39, 0.25);
+  outline-offset: 2px;
+  border-radius: 14px;
+}
+
 /* Spoken text arrives word by word, each one coming into focus. */
 .reveal-word {
   display: inline-block;

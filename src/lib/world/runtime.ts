@@ -5,6 +5,7 @@
 import type { RapierRigidBody } from "@react-three/rapier";
 import { Vector3, type Object3D } from "three";
 import type { Vec3 } from "./catalog";
+import type { Framing } from "./camera-framing";
 
 export const bodies = new Map<string, RapierRigidBody>();
 export const nodes = new Map<string, Object3D>();
@@ -110,7 +111,7 @@ export function takeFresh(id: string): boolean {
 }
 
 /**
- * The camera rig registers here so lesson code can ask whether points are
- * clearly on screen (outside the cards and composer). Null until mounted.
+ * The camera rig registers here so the lesson can ask how well points are
+ * framed right now (on screen, clear of the UI, and how big). Null until mounted.
  */
-export const view: { inView: ((points: Vec3[]) => boolean) | null } = { inView: null };
+export const view: { framing: ((points: Vec3[]) => Framing) | null } = { framing: null };

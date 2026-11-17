@@ -95,10 +95,12 @@ export interface CameraRequest {
   /** Explicit camera distance (overrides zoom), e.g. to frame a trajectory. */
   distance?: number;
   preset?: "iso" | "top" | "front" | "side" | "home" | "periodic_table";
-  /** Fit all of these on screen (the subject and the speaking guide), keeping the viewing angle. */
+  /** Fit all of these on screen, keeping the viewing angle. */
   points?: Vec3[];
   /** Smallest framed radius (m) for points framing. */
   radius?: number;
+  /** The student asked for this view (a button): always honoured, and it hands them the camera mid-lesson. */
+  by?: "user";
 }
 
 export type EnglishVoice = "gemini" | "speechify";
@@ -160,6 +162,8 @@ export interface SimState extends SceneData {
   /** Earlier picks, newest first (at most 4). */
   recentAttention: Attention[];
   speech: Speech | null;
+  /** The speaking character is off screen (or under the composer): its line docks above the composer instead. */
+  speakerHidden: boolean;
   question: Question | null;
   explanation: Explanation | null;
   messages: ChatMessage[];
@@ -169,6 +173,10 @@ export interface SimState extends SceneData {
   /** A button the error toast offers, e.g. when the student is out of credits. */
   aiErrorAction: "buy_credits" | null;
   camera: CameraRequest;
+  /** The lesson may steer the camera. Off once the student orbits, zooms or picks a view mid-lesson; each new lesson turns it back on. */
+  cameraFollow: boolean;
+  /** Latest lesson shot held back while the student has the camera; "Follow lesson" plays it. */
+  pendingShot: Omit<CameraRequest, "nonce"> | null;
   lastPlan: ScenePlan | null;
   /** Scene as it was right before the last plan ran (for replay). */
   prePlanScene: SceneData | null;
@@ -204,6 +212,10 @@ export interface SimState extends SceneData {
   patchCharacter: (id: string, p: Partial<Character>) => void;
   setProjectile: (p: Partial<ProjectileState>, relaunch?: boolean) => void;
   focus: (r: Omit<CameraRequest, "nonce">) => void;
+  /** The student moved the camera themself. */
+  takeCamera: () => void;
+  /** Hand the camera back to the lesson and catch up on the shot it held back. */
+  followLesson: () => void;
   addMessage: (role: ChatMessage["role"], text: string, speech?: boolean) => void;
   updateSettings: (p: Partial<Settings>) => void;
 }
@@ -272,6 +284,7 @@ export const useSim = create<SimState>()(
       attention: null,
       recentAttention: [],
       speech: null,
+      speakerHidden: false,
       question: null,
       explanation: null,
       messages: [],
@@ -280,6 +293,8 @@ export const useSim = create<SimState>()(
       aiError: null,
       aiErrorAction: null,
       camera: { nonce: 0, preset: "home" },
+      cameraFollow: true,
+      pendingShot: null,
       lastPlan: null,
       prePlanScene: null,
       settings: { motion: "auto", quality: "auto", voice: true, voiceRate: 1, englishVoice: "gemini", language: "auto", gradeBand: "middle" },
@@ -362,7 +377,20 @@ export const useSim = create<SimState>()(
           }
           return { projectile: next, ...(relaunch ? { paused: false } : {}), ...(s.world === "court" && p.gravity !== undefined ? { gravity: [0, -next.gravity, 0] as Vec3 } : {}) };
         }),
-      focus: (r) => set((s) => ({ camera: { ...r, nonce: s.camera.nonce + 1 } })),
+      focus: (r) =>
+        set((s) => {
+          const lesson = s.aiStatus === "playing";
+          // The student has the camera: the lesson's shot waits instead of yanking the view.
+          if (lesson && r.by !== "user" && !s.cameraFollow) return { pendingShot: r };
+          return { camera: { ...r, nonce: s.camera.nonce + 1 }, ...(lesson && r.by === "user" ? { cameraFollow: false } : {}) };
+        }),
+      takeCamera: () => set((s) => (s.aiStatus === "playing" && s.cameraFollow ? { cameraFollow: false } : s)),
+      followLesson: () =>
+        set((s) => ({
+          cameraFollow: true,
+          pendingShot: null,
+          ...(s.pendingShot ? { camera: { ...s.pendingShot, nonce: s.camera.nonce + 1 } } : {}),
+        })),
       addMessage: (role, text, speech) =>
         set((s) => ({ messages: [...s.messages.slice(-79), { id: `m${Date.now()}_${msgSeq++}`, role, text, at: Date.now(), speech }] })),
       updateSettings: (p) => set((s) => ({ settings: { ...s.settings, ...p } })),

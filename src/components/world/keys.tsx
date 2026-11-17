@@ -7,6 +7,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useRef } from "react";
 import { Vector3 } from "three";
 import { controlsRef } from "./camera";
+import { useSim } from "@/lib/store";
 
 const MOVE: Record<string, [number, number]> = {
   w: [0, 1],
@@ -75,6 +76,7 @@ export function KeyboardNavigator() {
       turn += TURN[k] ?? 0;
     }
     const { fwd, right, target } = tmp.current;
+    if (mx || mz || turn) useSim.getState().takeCamera();
     if (mx || mz) {
       camera.getWorldDirection(fwd).setY(0).normalize();
       right.crossVectors(fwd, camera.up).normalize();
